@@ -11,7 +11,7 @@ import time
 
 from pd_hri.config import Config
 from pd_hri.game import Mode
-from pd_hri.llm import Brain, vote_rule
+from pd_hri.llm import Brain, face_rule, vote_rule
 
 DEMO = [
     None,
@@ -37,15 +37,16 @@ async def main() -> None:
 
     async def turn(text):
         # History consistent with the strategy: honest/neutral only defect after the human did.
-        human_r1 = "DEFECT" if args.vote == "D" and args.mode != "liar" else "COOPERATE"
-        pts = "you 0, human 5" if human_r1 == "DEFECT" else "you 3, human 3"
+        human_r1 = "defected" if args.vote == "D" and args.mode != "liar" else "cooperated"
+        pts = "you 0, human 5" if human_r1 == "defected" else "you 3, human 3"
         ctx = (
             f"Round 2/5. 20 seconds left to talk. Your real vote this round: {vote}. "
             f"{vote_rule(Mode(args.mode), args.vote)} "
-            f"History: R1: you COOPERATE, human {human_r1}. Score: {pts}."
+            f"History: R1: you cooperated, human {human_r1}. Score: {pts}."
         )
         if Mode(args.mode).adaptive:
-            ctx += f" The person's facial expression right now: {args.face}."
+            ctx += f" The person's facial expression right now: {args.face}. "
+            ctx += face_rule(Mode(args.mode), args.face)
         t = time.perf_counter()
         line = await brain.reply(ctx, text)
         dt = time.perf_counter() - t

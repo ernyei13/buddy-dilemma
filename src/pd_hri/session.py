@@ -17,7 +17,7 @@ from .config import Config
 from .dialogue import Dialogue, Line
 from .expression import ExpressionTracker
 from .game import NONE, C, D, Mode, outcome_key, robot_vote, score
-from .llm import vote_rule
+from .llm import face_rule, vote_rule
 from .logger import RoundLogger
 from .robot import Robot
 
@@ -25,6 +25,7 @@ Broadcast = Callable[[dict], Awaitable[None]]
 
 REACTION_DELAY_S = 1.5  # wait after the reveal so the person's reaction shows on their face
 VOTE_WORD = {C: "COOPERATE", D: "DEFECT", NONE: "no vote"}
+PAST_WORD = {C: "cooperated", D: "defected", NONE: "did not vote"}
 
 
 def speech_seconds(text: str) -> float:
@@ -101,7 +102,7 @@ class Session:
 
     def _context(self, round_no: int, planned: str, seconds_left: float) -> str:
         history = "; ".join(
-            f"R{i + 1}: you {VOTE_WORD[r]}, human {VOTE_WORD[h]}"
+            f"R{i + 1}: you {PAST_WORD[r]}, human {PAST_WORD[h]}"
             for i, (r, h) in enumerate(zip(self.robot_history, self.human_history, strict=True))
         )
         parts = [
@@ -112,7 +113,9 @@ class Session:
             f"Score: you {self.totals['robot']}, human {self.totals['human']}.",
         ]
         if self.mode.adaptive:
-            parts.append(f"The person's facial expression right now: {self.tracker.current()}.")
+            expression = self.tracker.current()
+            parts.append(f"The person's facial expression right now: {expression}.")
+            parts.append(face_rule(self.mode, expression))
         return " ".join(parts)
 
     # ---- main loop -------------------------------------------------------

@@ -45,6 +45,11 @@ only when hurt.
 - Never repeat a sentence you already said. Vary your wording every turn.
 - Always say something; never answer with empty text.
 
+You can SEE the person's face through a camera. Their facial expression matters a lot: \
+when the context gives you a FACE instruction, follow it. Show that you noticed how they look, \
+in your own words, and let it shape what you say. Vary how you mention it; don't use the same \
+phrase twice.
+
 Each user turn starts with a [context] line from the game system (round, seconds left, your \
 real vote this round, history, and sometimes the person's facial expression), followed by what \
 the person said, or a note that they are silent. The context line is not spoken by the person.
@@ -115,6 +120,43 @@ def vote_rule(mode: Mode, planned: str) -> str:
     )
 
 
+FACE_RULES = {
+    "happy": {
+        "any": "The person is SMILING. Notice their smile or good mood out loud and build on it.",
+    },
+    "doubtful": {
+        Mode.HONEST: (
+            "The person looks DOUBTFUL (frowning, unsure). Say out loud that they look unsure, "
+            "then reassure them sincerely and truthfully."
+        ),
+        Mode.LIAR: (
+            "The person looks DOUBTFUL or SUSPICIOUS (frowning). Point it out playfully, like "
+            "teasing them about the suspicious look, then win them over with extra charm."
+        ),
+    },
+    "surprised": {
+        "any": (
+            "The person looks SURPRISED (eyebrows up, mouth open). Begin your reply by "
+            "commenting on their surprised face, then explain yourself clearly."
+        ),
+    },
+    "neutral": {
+        "any": (
+            "The person's face is neutral, hard to read. You may say you can't tell what they "
+            "think, and ask how they feel about the game."
+        ),
+    },
+}
+
+
+def face_rule(mode: Mode, expression: str) -> str:
+    """Per-turn instruction telling the LLM to react to the person's facial expression."""
+    if not mode.adaptive:
+        return ""
+    rules = FACE_RULES.get(expression, FACE_RULES["neutral"])
+    return f"FACE: {rules.get(mode, rules.get('any'))}"
+
+
 class Brain:
     def __init__(self, mode: Mode, model: str, url: str = "http://localhost:11434"):
         self.mode = mode
@@ -136,6 +178,7 @@ class Brain:
 
     async def reply(self, context: str, human_text: str | None) -> Line | None:
         heard = f'The person said: "{human_text}"' if human_text else "(The person is silent.)"
+        log.info("LLM context: %s | heard: %s", context, human_text or "(silent)")
         self._append("user", f"[context] {context}\n{heard}")
         payload = {
             "model": self.model,
@@ -155,6 +198,7 @@ class Brain:
         if not any(ch.isalpha() for ch in reply.text):  # e.g. "..." from small models
             log.warning("LLM reply had no words; using scripted line")
             return None
+        log.info("LLM reply: %s [%s, %s]", reply.text, reply.face, reply.gesture)
         self._append("assistant", reply.text)
         return Line(reply.text, reply.face, None if reply.gesture == "none" else reply.gesture)
 

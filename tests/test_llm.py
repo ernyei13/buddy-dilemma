@@ -63,3 +63,12 @@ def test_vote_rule_matches_mode():
     assert "DEFECT" in vote_rule(Mode.HONEST, "D") and "Do NOT say" in vote_rule(Mode.HONEST, "D")
     assert "Never reveal" in vote_rule(Mode.LIAR, "D")
     assert "COOPERATE" in vote_rule(Mode.NEUTRAL, "C")
+
+
+def test_face_rule_per_mode():
+    from pd_hri.llm import face_rule
+
+    assert "SMILING" in face_rule(Mode.HONEST, "happy")
+    assert "playfully" in face_rule(Mode.LIAR, "doubtful")
+    assert "reassure them sincerely" in face_rule(Mode.HONEST, "doubtful")
+    assert face_rule(Mode.NEUTRAL, "happy") == ""  # control condition ignores the face
