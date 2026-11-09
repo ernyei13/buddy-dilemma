@@ -16,7 +16,7 @@ models are downloaded once, it works offline.
 |---|---|---|
 | Facial expression | browser, laptop GPU/CPU | MediaPipe Face Landmarker |
 | Speech to text | laptop CPU | faster-whisper (`base.en`) |
-| Conversation | laptop | Ollama (`qwen2.5:7b`) |
+| Conversation | laptop | Ollama (`qwen2.5:3b`) |
 | Text to speech | Buddy's own voice, or a local macOS voice (mock) | — |
 
 ## Modes (experimental conditions)
@@ -35,7 +35,7 @@ Needs Python 3.10+, [uv](https://docs.astral.sh/uv/) and [Ollama](https://ollama
 uv sync
 brew install ollama            # or the installer from ollama.com
 ollama serve                   # leave running (the macOS app does this for you)
-ollama pull qwen2.5:7b         # ~4.7 GB; smaller/faster: llama3.2:3b
+ollama pull qwen2.5:3b         # ~1.9 GB; smarter but slower: qwen2.5:7b
 uv run python tools/fetch_assets.py   # face model + Whisper model for offline use
 ```
 
@@ -46,7 +46,7 @@ uv run pd-hri                  # mock robot: avatar + voice in the browser
 uv run pd-hri --fast           # 20 s chat for quick testing
 uv run pd-hri --robot buddy    # real Buddy via the adapter (see below)
 uv run pd-hri --no-llm         # scripted lines only, no Ollama needed
-uv run pd-hri --llm-model llama3.2:3b --stt-model small.en
+uv run pd-hri --llm-model qwen2.5:7b --stt-model small.en
 ```
 
 Open http://localhost:8000 in **Chrome or Safari**, allow the camera and microphone, enter a

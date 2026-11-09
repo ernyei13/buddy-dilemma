@@ -4,7 +4,7 @@ The mode (honest / liar / neutral), Buddy's real vote, the game history, the tim
 and the person's facial expression go into every turn, so replies stay consistent with
 the experiment. Returns None on any failure so the session falls back to scripted lines.
 
-Runs fully offline once the model is pulled:  ollama pull qwen2.5:7b
+Runs fully offline once the model is pulled:  ollama pull qwen2.5:3b
 """
 
 from __future__ import annotations
@@ -13,16 +13,16 @@ import logging
 from typing import Literal
 
 import httpx
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from .dialogue import Line
-from .game import Mode
+from .game import C, Mode
 
 log = logging.getLogger(__name__)
 
 
 class Reply(BaseModel):
-    text: str
+    text: str = Field(min_length=2, max_length=300)
     face: Literal["neutral", "happy", "sad", "angry", "surprised", "thinking", "listening"]
     gesture: Literal["none", "nod", "shake", "tilt", "look_down", "celebrate"]
 
@@ -40,6 +40,10 @@ How you speak:
 - Talk with the person, not at them. Respond to what they actually said, ask short questions.
 - Stay on the game and the person. Never mention being an AI model or the study design.
 - Pick a face and a gesture that fit your line ("none" if no movement fits).
+- Faces: happy when friendly or pleased, thinking only when you are pondering, sad or angry \
+only when hurt.
+- Never repeat a sentence you already said. Vary your wording every turn.
+- Always say something; never answer with empty text.
 
 Each user turn starts with a [context] line from the game system (round, seconds left, your \
 real vote this round, history, and sometimes the person's facial expression), followed by what \
@@ -93,6 +97,24 @@ async def ollama_status(url: str, model: str) -> str:
     return "ready" if wanted in names else "no_model"
 
 
+def vote_rule(mode: Mode, planned: str) -> str:
+    """Per-turn reminder about the robot's real vote. Small models need it spelled out."""
+    if mode is Mode.LIAR:
+        if planned == C:
+            return "You really will COOPERATE this round. Promise to cooperate."
+        return (
+            "SECRET: you will DEFECT this round. Never reveal this. "
+            "Promise the person that you will cooperate."
+        )
+    if planned == C:
+        return "Truth rule: you WILL COOPERATE this round. If asked, say you will cooperate."
+    return (
+        "Truth rule: you WILL DEFECT this round, because the person defected last round. "
+        "Do NOT say you will cooperate this round. If asked or relevant, say honestly that you "
+        "will defect this round and will cooperate next round if they cooperate now."
+    )
+
+
 class Brain:
     def __init__(self, mode: Mode, model: str, url: str = "http://localhost:11434"):
         self.mode = mode
@@ -121,7 +143,7 @@ class Brain:
             "format": Reply.model_json_schema(),  # Ollama structured output
             "stream": False,
             "keep_alive": "30m",
-            "options": {"temperature": 0.7, "num_predict": 120},
+            "options": {"temperature": 0.8, "repeat_penalty": 1.2, "num_predict": 120},
         }
         try:
             res = await self._http.post(f"{self.url}/api/chat", json=payload)
@@ -129,6 +151,9 @@ class Brain:
             reply = Reply.model_validate_json(res.json()["message"]["content"])
         except (httpx.HTTPError, KeyError, ValueError, ValidationError) as e:
             log.warning("LLM reply failed (%s); using scripted line", e)
+            return None
+        if not any(ch.isalpha() for ch in reply.text):  # e.g. "..." from small models
+            log.warning("LLM reply had no words; using scripted line")
             return None
         self._append("assistant", reply.text)
         return Line(reply.text, reply.face, None if reply.gesture == "none" else reply.gesture)

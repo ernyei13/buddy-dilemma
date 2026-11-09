@@ -17,6 +17,7 @@ from .config import Config
 from .dialogue import Dialogue, Line
 from .expression import ExpressionTracker
 from .game import NONE, C, D, Mode, outcome_key, robot_vote, score
+from .llm import vote_rule
 from .logger import RoundLogger
 from .robot import Robot
 
@@ -106,7 +107,7 @@ class Session:
         parts = [
             f"Round {round_no}/{self.cfg.rounds}.",
             f"{max(0, round(seconds_left))} seconds left to talk.",
-            f"Your real vote this round: {VOTE_WORD[planned]}.",
+            f"Your real vote this round: {VOTE_WORD[planned]}. {vote_rule(self.mode, planned)}",
             f"History: {history}." if history else "First round.",
             f"Score: you {self.totals['robot']}, human {self.totals['human']}.",
         ]

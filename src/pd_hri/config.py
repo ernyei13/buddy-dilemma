@@ -21,7 +21,7 @@ class Config:
 
     # Conversation (all local): Ollama LLM + faster-whisper speech recognition.
     use_llm: bool = True
-    llm_model: str = "qwen2.5:7b"
+    llm_model: str = "qwen2.5:3b"  # small + fast; better: qwen2.5:7b
     ollama_url: str = "http://localhost:11434"
     stt_model: str = "base.en"  # faster-whisper size: tiny.en, base.en, small.en, ...
     silence_nudge_s: float = 7.0  # robot speaks up after this much silence

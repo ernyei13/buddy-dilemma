@@ -3,7 +3,7 @@
 - MediaPipe face tracker (JS + WASM + model) -> src/pd_hri/web/vendor/
 - faster-whisper speech model                -> Hugging Face cache (~/.cache/huggingface)
 
-The LLM is pulled separately:  ollama pull qwen2.5:7b
+The LLM is pulled separately:  ollama pull qwen2.5:3b
 
 Usage: uv run python tools/fetch_assets.py [--stt-model base.en]
 """

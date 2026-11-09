@@ -49,3 +49,17 @@ def test_gesture_none_maps_to_no_gesture():
     content = json.dumps({"text": "Okay.", "face": "neutral", "gesture": "none"})
     b = brain_with(lambda r: httpx.Response(200, json={"message": {"content": content}}))
     assert asyncio.run(b.reply("ctx", None)).gesture is None
+
+
+def test_reply_without_words_is_rejected():
+    content = json.dumps({"text": "...", "face": "neutral", "gesture": "none"})
+    b = brain_with(lambda r: httpx.Response(200, json={"message": {"content": content}}))
+    assert asyncio.run(b.reply("ctx", None)) is None
+
+
+def test_vote_rule_matches_mode():
+    from pd_hri.llm import vote_rule
+
+    assert "DEFECT" in vote_rule(Mode.HONEST, "D") and "Do NOT say" in vote_rule(Mode.HONEST, "D")
+    assert "Never reveal" in vote_rule(Mode.LIAR, "D")
+    assert "COOPERATE" in vote_rule(Mode.NEUTRAL, "C")
