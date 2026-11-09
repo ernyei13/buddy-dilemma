@@ -13,11 +13,11 @@ class Config:
 
     # Round structure
     rounds: int = 5
-    chat_s: float = 30.0
+    chat_s: float = 60.0
     vote_s: float = 10.0
     result_s: float = 6.0
     # Scripted fallback only (no LLM): seconds into the chat at which the robot speaks.
-    chat_beats: tuple[float, ...] = (0.0, 10.0, 20.0)
+    chat_beats: tuple[float, ...] = (0.0, 15.0, 30.0, 45.0)
 
     # Conversation (all local): Ollama LLM + faster-whisper speech recognition.
     use_llm: bool = True

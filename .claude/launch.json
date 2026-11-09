@@ -4,7 +4,7 @@
     {
       "name": "pd-hri",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "pd-hri", "--fast"],
+      "runtimeArgs": ["run", "pd-hri"],
       "port": 8000
     }
   ]

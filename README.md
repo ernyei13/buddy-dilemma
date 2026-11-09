@@ -2,7 +2,7 @@
 
 DD2413 Social Robotics (KTH), project and Lab 1.
 
-A participant **talks with the social robot Buddy for 30 seconds**. Then both secretly vote
+A participant **talks with the social robot Buddy for 60 seconds**. Then both secretly vote
 **Cooperate** or **Defect** within 10 seconds, and the screen shows the result. This repeats
 for 5 rounds.
 
@@ -66,7 +66,7 @@ participant (testing without a mic) · `Shift+Q` abort.
  webcam ─► face.js (MediaPipe) ─► expression.py ─┐
  mic ────► voice.js (detects speech) ─► stt.py (Whisper) ─┤
                                                          ▼
- START ─► session.py: CHAT 30 s ─► VOTE 10 s ─► RESULT ─► next round
+ START ─► session.py: CHAT 60 s ─► VOTE 10 s ─► RESULT ─► next round
               │  robot vote = game.py strategy for the mode
               │  reply      = llm.py (Ollama) with mode + real vote + face + time left
               │               (falls back to dialogue.py scripted lines)

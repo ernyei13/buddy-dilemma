@@ -1,4 +1,4 @@
-"""The interaction state machine: CHAT (30 s) -> VOTE (10 s) -> RESULT, repeated.
+"""The interaction state machine: CHAT (60 s) -> VOTE (10 s) -> RESULT, repeated.
 
 Sense:  facial expression (webcam), the person's speech (local Whisper), their vote
 Plan:   robot vote from the mode's strategy; reply from the local LLM (or scripted lines)
