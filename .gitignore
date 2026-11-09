@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Study data (participant logs) — never commit
+data/*
+!data/.gitkeep
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Unity (Buddy adapter project, if created here)
+buddy_adapter/**/Library/
+buddy_adapter/**/Temp/
+buddy_adapter/**/Obj/
+buddy_adapter/**/Build/
+buddy_adapter/**/Logs/

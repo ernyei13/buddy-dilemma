@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pd-hri",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "pd-hri", "--fast", "--rounds", "2"],
+      "port": 8000
+    }
+  ]
+}

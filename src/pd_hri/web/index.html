@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Buddy Dilemma</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- Operator start panel -->
+  <section id="start" class="panel">
+    <h1>Buddy Dilemma</h1>
+    <label>Participant ID <input id="participant" placeholder="P01" autocomplete="off"></label>
+    <label>Mode
+      <select id="mode">
+        <option value="honest">Honest (keeps its word)</option>
+        <option value="liar">Liar (promises, then defects)</option>
+        <option value="neutral">Neutral (control, no adaptation)</option>
+      </select>
+    </label>
+    <p id="robot-status" class="muted">Connecting…</p>
+    <p id="camera-status" class="muted">Camera: starting…</p>
+    <button id="start-btn" disabled>Start</button>
+    <p class="muted small">
+      Keys: <b>C</b>/<b>D</b> vote · <b>1–4</b> fake expression (happy, neutral, doubtful, surprised),
+      <b>0</b> back to camera · <b>E</b> show camera/debug · <b>Shift+Q</b> abort
+    </p>
+  </section>
+
+  <!-- Game screen -->
+  <section id="game" class="hidden">
+    <header>
+      <div id="round">Round 1 / 5</div>
+      <div class="scores">
+        <span>You <b id="score-human">0</b></span>
+        <span>Buddy <b id="score-robot">0</b></span>
+      </div>
+    </header>
+
+    <main>
+      <div id="avatar" class="hidden" data-mood="neutral">
+        <svg viewBox="0 0 200 160" aria-label="Buddy">
+          <rect x="10" y="10" width="180" height="140" rx="36" class="head"/>
+          <line id="brow-l" x1="52" y1="48" x2="82" y2="48" class="brow"/>
+          <line id="brow-r" x1="118" y1="48" x2="148" y2="48" class="brow"/>
+          <ellipse id="eye-l" cx="67" cy="72" rx="14" ry="16" class="eye"/>
+          <ellipse id="eye-r" cx="133" cy="72" rx="14" ry="16" class="eye"/>
+          <path id="mouth" d="M75 115 Q100 118 125 115" class="mouth"/>
+        </svg>
+      </div>
+      <p id="subtitle"></p>
+
+      <h2 id="phase-title">Talk with Buddy</h2>
+      <div id="timer">60</div>
+
+      <div id="vote" class="hidden">
+        <button class="vote-btn coop" data-choice="C">Cooperate</button>
+        <button class="vote-btn defect" data-choice="D">Defect</button>
+      </div>
+      <p id="vote-ack" class="hidden">Your vote is locked in.</p>
+
+      <div id="result" class="hidden">
+        <div class="card"><span>You</span><b id="res-human"></b><i id="pts-human"></i></div>
+        <div class="card"><span>Buddy</span><b id="res-robot"></b><i id="pts-robot"></i></div>
+      </div>
+    </main>
+  </section>
+
+  <!-- Operator debug: camera + expression -->
+  <aside id="debug" class="hidden">
+    <video id="cam" autoplay playsinline muted></video>
+    <div>Expression: <b id="expr">–</b> <span id="expr-src" class="muted"></span></div>
+  </aside>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>
