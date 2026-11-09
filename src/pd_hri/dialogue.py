@@ -32,7 +32,7 @@ L = Line  # short alias for the tables
 INTRO = {
     "expressive": [
         L(
-            "Hi, I'm Buddy! Let's play a game. Each round we talk for a minute, "
+            "Hi, I'm Buddy! Let's play a game. Each round we chat for half a minute, "
             "then we both secretly choose: cooperate or defect.",
             "happy",
             "nod",
@@ -40,7 +40,7 @@ INTRO = {
     ],
     "flat": [
         L(
-            "Hello. We will play a game. Each round we talk for one minute, "
+            "Hello. We will play a game. Each round we talk for thirty seconds, "
             "then we both choose cooperate or defect."
         )
     ],

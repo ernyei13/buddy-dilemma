@@ -23,3 +23,6 @@ buddy_adapter/**/Temp/
 buddy_adapter/**/Obj/
 buddy_adapter/**/Build/
 buddy_adapter/**/Logs/
+
+# Downloaded models (tools/fetch_assets.py)
+src/pd_hri/web/vendor/

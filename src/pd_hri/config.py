@@ -13,11 +13,19 @@ class Config:
 
     # Round structure
     rounds: int = 5
-    chat_s: float = 60.0
+    chat_s: float = 30.0
     vote_s: float = 10.0
     result_s: float = 6.0
-    # Seconds into the chat phase at which the robot speaks.
-    chat_beats: tuple[float, ...] = (0.0, 15.0, 30.0, 45.0)
+    # Scripted fallback only (no LLM): seconds into the chat at which the robot speaks.
+    chat_beats: tuple[float, ...] = (0.0, 10.0, 20.0)
+
+    # Conversation (all local): Ollama LLM + faster-whisper speech recognition.
+    use_llm: bool = True
+    llm_model: str = "qwen2.5:7b"
+    ollama_url: str = "http://localhost:11434"
+    stt_model: str = "base.en"  # faster-whisper size: tiny.en, base.en, small.en, ...
+    silence_nudge_s: float = 7.0  # robot speaks up after this much silence
+    min_turn_s: float = 3.0  # no new robot turn this close to the end of the chat
 
     # Liar mode: rounds (1-based) in which the robot defects despite promising to cooperate.
     liar_defect_rounds: tuple[int, ...] = (2, 4)

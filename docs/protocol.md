@@ -21,7 +21,11 @@ Every message is one JSON object with a `cmd` field.
 | `gesture` | `name`          | `nod` `shake` `tilt` `look_down` `celebrate`                           | play a short (≤ 2 s) head/body movement        |
 | `led`     | `color`         | CSS colour name or `#rrggbb`                                            | set body LEDs (ignore if unsupported)         |
 
-A dialogue line is sent as `face` → `gesture` (optional) → `say`, back to back.
+A dialogue line is sent as `face` → `gesture` (optional) → `say`, back to back. While the
+laptop waits for the LLM, it sends `face: thinking`.
+
+The robot does **not** need a camera, mic, speech recognition or LLM: the laptop handles all
+of these. Buddy only executes these four commands with its own voice and body.
 
 Unknown commands or values must be ignored, not crash the app.
 

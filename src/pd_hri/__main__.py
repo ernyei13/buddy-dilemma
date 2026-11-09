@@ -28,14 +28,24 @@ def main() -> None:
     p.add_argument("--chat", type=float, default=Config.chat_s, help="chat seconds")
     p.add_argument("--vote", type=float, default=Config.vote_s, help="vote seconds")
     p.add_argument("--port", type=int, default=Config.port)
-    p.add_argument("--fast", action="store_true", help="short timings for testing (12 s chat)")
+    p.add_argument("--fast", action="store_true", help="short timings for testing (20 s chat)")
+    p.add_argument("--no-llm", action="store_true", help="scripted lines only, no Ollama")
+    p.add_argument("--llm-model", default=Config.llm_model, help="Ollama model name")
+    p.add_argument("--stt-model", default=Config.stt_model, help="faster-whisper model size")
     args = p.parse_args()
 
     cfg = Config(
-        robot=args.robot, rounds=args.rounds, chat_s=args.chat, vote_s=args.vote, port=args.port
+        robot=args.robot,
+        rounds=args.rounds,
+        chat_s=args.chat,
+        vote_s=args.vote,
+        port=args.port,
+        use_llm=not args.no_llm,
+        llm_model=args.llm_model,
+        stt_model=args.stt_model,
     )
     if args.fast:
-        cfg.chat_s, cfg.vote_s, cfg.result_s, cfg.chat_beats = 12.0, 6.0, 4.0, (0.0, 4.0, 8.0)
+        cfg.chat_s, cfg.vote_s, cfg.result_s, cfg.chat_beats = 20.0, 6.0, 4.0, (0.0, 7.0, 14.0)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     ip = _lan_ip()

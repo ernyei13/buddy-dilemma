@@ -80,6 +80,59 @@ def test_honest_session_retaliates_once(tmp_path):
     assert [r["robot_vote"] for r in rows] == [C, D, C]
 
 
+class FakeBrain:
+    def __init__(self):
+        self.contexts, self.heard, self.noted = [], [], []
+
+    def note_robot_line(self, text):
+        self.noted.append(text)
+
+    async def reply(self, context, human_text):
+        from pd_hri.dialogue import Line
+
+        self.contexts.append(context)
+        self.heard.append(human_text)
+        return Line(f"reply to {human_text}", "happy", "nod")
+
+
+def test_interactive_chat_replies_to_speech(tmp_path):
+    from pd_hri.session import Session
+
+    cfg = Config(
+        rounds=1,
+        chat_s=0.6,
+        vote_s=0.05,
+        result_s=0.01,
+        silence_nudge_s=10.0,
+        min_turn_s=0.1,
+        data_dir=tmp_path,
+    )
+    brain = FakeBrain()
+    holder = {}
+
+    async def broadcast(msg):
+        if msg.get("phase") == "chat":
+            loop = asyncio.get_running_loop()
+            loop.call_later(0.05, holder["s"].add_speech, "will you cooperate?")
+
+    async def main():
+        tracker = ExpressionTracker()
+        tracker.add("doubtful")
+        s = Session(cfg, Mode.LIAR, "P", RecordingRobot(), broadcast, tracker, brain)
+        holder["s"] = s
+        await s.run()
+        return s
+
+    s = asyncio.run(main())
+    rows = list(csv.DictReader(s.logger.path.open()))
+    assert brain.heard == ["will you cooperate?"]
+    assert "Your real vote this round: COOPERATE" in brain.contexts[0]
+    assert "facial expression right now: doubtful" in brain.contexts[0]
+    assert "Human: will you cooperate?" in rows[0]["dialogue"]
+    assert "Buddy: reply to will you cooperate?" in rows[0]["dialogue"]
+    assert s.add_speech("too late") is False  # speech is ignored outside the chat
+
+
 def test_votes_rejected_outside_vote_phase(tmp_path):
     from pd_hri.session import Session
 

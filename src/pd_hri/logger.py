@@ -24,7 +24,7 @@ FIELDS = [
     "expr_chat",  # JSON label counts during the chat
     "expr_vote",  # JSON label counts during voting
     "expr_reaction",  # dominant label right after the reveal
-    "utterances",  # robot lines this round, " | " separated
+    "dialogue",  # "Buddy: ... | Human: ..." for this round
 ]
 
 
@@ -46,8 +46,8 @@ class RoundLogger:
         for key in ("expr_chat", "expr_vote"):
             if isinstance(row.get(key), dict):
                 row[key] = json.dumps(row[key], sort_keys=True)
-        if isinstance(row.get("utterances"), list):
-            row["utterances"] = " | ".join(row["utterances"])
+        if isinstance(row.get("dialogue"), list):
+            row["dialogue"] = " | ".join(row["dialogue"])
         self._writer.writerow(row)
         self._fh.flush()
 

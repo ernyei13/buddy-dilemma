@@ -1,12 +1,15 @@
 """FastAPI app: serves the screen, and hosts two WebSocket endpoints.
 
-/ws/screen  browser screen(s): operator start panel, timers, voting, webcam expressions
+/ws/screen  browser screen(s): start panel, timers, voting, webcam expressions, mic audio
 /ws/robot   robot adapter(s), e.g. the Buddy app (see docs/protocol.md)
+
+Everything runs locally: speech recognition (faster-whisper) and the LLM (Ollama).
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import logging
 from pathlib import Path
@@ -18,8 +21,10 @@ from fastapi.staticfiles import StaticFiles
 from .config import Config
 from .expression import LABELS, NO_FACE, ExpressionTracker, classify
 from .game import Mode
+from .llm import Brain, ollama_status
 from .robot import MockRobot, RemoteRobot
-from .session import Session
+from .session import Session, speech_seconds
+from .stt import Transcriber
 
 log = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).parent / "web"
@@ -53,11 +58,42 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         "session": None,
         "task": None,
         "tracker": ExpressionTracker(cfg.expression_window_s),
+        "llm": "off" if not cfg.use_llm else "checking",
     }
+    transcriber = Transcriber(cfg.stt_model)
+    background: set[asyncio.Task] = set()
+
+    def spawn(coro) -> None:
+        task = asyncio.create_task(coro)
+        background.add(task)
+        task.add_done_callback(background.discard)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app):
+        await warm_up()
+        yield
+
+    app.router.lifespan_context = lifespan
+
+    async def warm_up() -> None:
+        async def load_stt():
+            await asyncio.to_thread(transcriber.load)
+            await hub.to_screens(status())
+
+        async def check_llm():
+            state["llm"] = await ollama_status(cfg.ollama_url, cfg.llm_model)
+            if state["llm"] == "ready":
+                await Brain(Mode.HONEST, cfg.llm_model, cfg.ollama_url).warm_up()
+            await hub.to_screens(status())
+
+        spawn(load_stt())
+        if cfg.use_llm:
+            spawn(check_llm())
 
     async def robot_send(cmd: dict) -> None:
         # Screens always get the command (subtitles / mock avatar); robots only in buddy mode.
-        await hub.to_screens({"type": "robot", **cmd})
+        extra = {"est_s": round(speech_seconds(cmd["text"]), 1)} if cmd["cmd"] == "say" else {}
+        await hub.to_screens({"type": "robot", **cmd, **extra})
         if cfg.robot == "buddy":
             await hub.to_robots(cmd)
 
@@ -72,6 +108,9 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             "running": state["task"] is not None and not state["task"].done(),
             "modes": [m.value for m in Mode],
             "config": {"rounds": cfg.rounds, "chat_s": cfg.chat_s, "vote_s": cfg.vote_s},
+            "llm": state["llm"],
+            "llm_model": cfg.llm_model,
+            "stt": "ready" if transcriber.ready else ("error" if transcriber.error else "loading"),
         }
 
     async def start_session(mode: str, participant: str) -> None:
@@ -79,8 +118,11 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             return
         tracker = ExpressionTracker(cfg.expression_window_s)
         state["tracker"] = tracker
+        brain = (
+            Brain(Mode(mode), cfg.llm_model, cfg.ollama_url) if state["llm"] == "ready" else None
+        )
         session = Session(
-            cfg, Mode(mode), participant or "anon", make_robot(), hub.to_screens, tracker
+            cfg, Mode(mode), participant or "anon", make_robot(), hub.to_screens, tracker, brain
         )
         state["session"] = session
 
@@ -98,6 +140,15 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
         state["task"] = asyncio.create_task(runner())
         await hub.to_screens(status())
+
+    async def handle_speech(audio: str = "", text: str = "") -> None:
+        session = state["session"]
+        if not session or not session.accepting_speech:
+            return
+        if audio:
+            text = await transcriber.transcribe(base64.b64decode(audio))
+        if text.strip() and session.add_speech(text):
+            await hub.to_screens({"type": "transcript", "who": "human", "text": text.strip()})
 
     @app.get("/")
     async def index():
@@ -129,6 +180,10 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                         label = classify(msg.get("scores") or {})
                     state["tracker"].add(label)
                     await ws.send_json({"type": "expression", "label": label})
+                elif kind == "audio":
+                    spawn(handle_speech(audio=msg.get("pcm16", "")))
+                elif kind == "text":
+                    spawn(handle_speech(text=str(msg.get("text", ""))))
                 elif kind == "abort" and state["task"]:
                     state["task"].cancel()
         except WebSocketDisconnect:
