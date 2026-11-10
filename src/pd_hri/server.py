@@ -199,8 +199,11 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         await hub.to_screens(status())
         try:
             while True:
-                msg = await ws.receive_json()  # adapters may send {"type": "hello"/"log", ...}
-                log.info("robot says: %s", msg)
+                msg = await ws.receive_json()  # {"type": "hello" | "log" | "speech_done"}
+                if msg.get("type") == "speech_done":
+                    await hub.to_screens({"type": "robot_speech_done"})  # unmute the mic now
+                else:
+                    log.info("robot says: %s", msg)
         except WebSocketDisconnect:
             pass
         finally:

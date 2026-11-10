@@ -122,7 +122,7 @@ class Session:
     async def run(self) -> None:
         prev_outcome: str | None = None
         try:
-            await self.robot.led("deepskyblue")
+            await self.robot.led("#00BFFF")
             for round_no in range(1, self.cfg.rounds + 1):
                 prev_outcome = await self._round(round_no, prev_outcome)
             await self._state("end", self.cfg.rounds, session_id=self.logger.session_id)

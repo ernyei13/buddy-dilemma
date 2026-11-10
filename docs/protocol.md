@@ -19,7 +19,7 @@ Every message is one JSON object with a `cmd` field.
 | `say`     | `text` (string) | any sentence                                                           | start speaking **without blocking**; interrupt any current speech |
 | `face`    | `mood`          | `neutral` `happy` `sad` `angry` `surprised` `thinking` `listening`     | show that facial expression                   |
 | `gesture` | `name`          | `nod` `shake` `tilt` `look_down` `celebrate`                           | play a short (≤ 2 s) head/body movement        |
-| `led`     | `color`         | CSS colour name or `#rrggbb`                                            | set body LEDs (ignore if unsupported)         |
+| `led`     | `color`         | `#rrggbb`                                                               | set body LEDs (ignore if unsupported)         |
 
 A dialogue line is sent as `face` → `gesture` (optional) → `say`, back to back. While the
 laptop waits for the LLM, it sends `face: thinking`.
@@ -33,10 +33,13 @@ Unknown commands or values must be ignored, not crash the app.
 
 ```json
 {"type": "hello", "name": "buddy"}
+{"type": "speech_done"}
 {"type": "log", "message": "anything useful for debugging"}
 ```
 
-These are only printed in the laptop console.
+`speech_done` is sent when Buddy finishes a `say`. The laptop then unmutes the participant's
+mic right away, instead of waiting for its estimate of how long the line takes. The others are
+only printed in the laptop console.
 
 ## Testing without the robot
 

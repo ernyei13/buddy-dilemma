@@ -35,6 +35,7 @@ function handle(msg) {
     case "state": return onState(msg);
     case "robot": return onRobot(msg);
     case "transcript": return addChat("human", msg.text);
+    case "robot_speech_done": robotSpeakingUntil = performance.now() + 300; return;
     case "vote_ack": return onVoteAck();
     case "expression": return showExpression(msg.label);
   }

@@ -10,6 +10,11 @@ import sys
 import websockets
 
 
+async def report_done(ws, text: str) -> None:
+    await asyncio.sleep(len(text.split()) / 2.6)
+    await ws.send(json.dumps({"type": "speech_done"}))
+
+
 async def main(url: str) -> None:
     async with websockets.connect(url) as ws:
         await ws.send(json.dumps({"type": "hello", "name": "fake_robot"}))
@@ -18,6 +23,8 @@ async def main(url: str) -> None:
             msg = json.loads(raw)
             detail = {k: v for k, v in msg.items() if k != "cmd"}
             print(f"{msg.get('cmd', '?'):8} {detail}")
+            if msg.get("cmd") == "say":  # pretend to talk, then report like the Buddy app does
+                asyncio.create_task(report_done(ws, msg["text"]))
 
 
 if __name__ == "__main__":

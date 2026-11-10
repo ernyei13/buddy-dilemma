@@ -1,0 +1,11 @@
+# Blue Frog Maven login — never commit
+credentials.gradle
+
+# Android Studio / Gradle
+.gradle/
+.idea/
+local.properties
+build/
+app/build/
+*.iml
+captures/

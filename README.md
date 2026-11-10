@@ -90,18 +90,21 @@ speaks up. The mic is muted while Buddy talks so it doesn't hear itself.
 | `src/pd_hri/session.py` | round state machine, conversation loop, logging |
 | `src/pd_hri/server.py` | web server plus the `/ws/screen` and `/ws/robot` sockets |
 | `src/pd_hri/web/` | screen: timer, voting, chat, self-view, mic capture, mock avatar |
-| `buddy_adapter/` | Unity C# bridge for Buddy (fill in 4 SDK calls) |
+| `buddy_app/` | Android app for Buddy: native face, voice, head, LEDs (Buddy SDK) |
 | `tools/fake_robot.py` | prints the commands a robot would receive |
 | `tools/fetch_assets.py` | downloads the face and speech models for offline use |
 
 ## Running on Buddy
 
-Buddy only needs to **speak, show faces, move and set LEDs**. Camera, mic, speech recognition
-and the LLM all stay on the laptop, so there is very little Buddy code.
+Buddy runs a small Android app ([`buddy_app/`](buddy_app/README.md)) that uses its **native
+face, voice, head movements and LEDs** through the Buddy SDK. Camera, mic, speech recognition
+and the LLM all stay on the laptop.
 
-1. Follow [`buddy_adapter/README.md`](buddy_adapter/README.md) to put `BuddyBridge.cs` in a Buddy app.
+1. Build and install the app with Android Studio, following [`buddy_app/README.md`](buddy_app/README.md).
+   You need the Buddy SDK login from Blue Frog or your teaching team.
 2. Put the laptop and Buddy on the same Wi-Fi network.
-3. Run `uv run pd-hri --robot buddy`, then set the printed `ws://…/ws/robot` URL in the app.
+3. Run `uv run pd-hri --robot buddy`, then type the printed `ws://…/ws/robot` address in the app
+   on Buddy and press Connect.
 4. The start screen shows "Buddy — connected ✅". Place the laptop's camera and mic in front of
    the participant, next to Buddy.
 
@@ -126,4 +129,4 @@ CI runs lint and tests on every push. Work on a branch and open a PR to `main`.
 - **Perception:** `web/face.js`, `expression.py`, `web/voice.js`, `stt.py`
 - **Conversation:** `llm.py` prompts, `dialogue.py` lines, `session.py` turn-taking
 - **Study logic and data:** `game.py`, `config.py`, logging, analysis
-- **Buddy integration:** `buddy_adapter/`, testing on the robot
+- **Buddy integration:** `buddy_app/`, testing on the robot

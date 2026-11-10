@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Network: connect to the laptop over Wi-Fi -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Buddy resources used by this app (SDK guide, "Add the BFR permissions") -->
+    <uses-permission android:name="com.bfr.buddy.resource.SPEECH" />
+    <uses-permission android:name="com.bfr.buddy.resource.FACE" />
+    <uses-permission android:name="com.bfr.buddy.resource.LEDS" />
+    <uses-permission android:name="com.bfr.buddy.resource.HEAD" />
+
+    <!-- usesCleartextTraffic: the laptop speaks plain ws:// on the local network -->
+    <application
+        android:name=".MainApplication"
+        android:label="Buddy Dilemma"
+        android:theme="@style/BuddyTheme"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="landscape">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

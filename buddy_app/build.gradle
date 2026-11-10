@@ -1,0 +1,32 @@
+// Project build file, set up as in the Buddy SDK 2.4 user guide (section "How to use maven").
+// Your Blue Frog Maven login goes in credentials.gradle (git-ignored), see README.md.
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        def gradlecredentials = "credentials.gradle"
+        if (project.file(gradlecredentials).exists()) {
+            apply from: gradlecredentials
+        }
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:7.4.2'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://jitpack.io" }
+        // Blue Frog Robotics SDK repository
+        maven {
+            url "https://bluefrogrobotics.jfrog.io/artifactory/bluefrogrobotics-libs-release-local/"
+            credentials {
+                username "${maven_user}"
+                password "${maven_password}"
+            }
+        }
+    }
+}

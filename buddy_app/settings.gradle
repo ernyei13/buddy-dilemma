@@ -1,0 +1,2 @@
+rootProject.name = "BuddyDilemma"
+include ':app'

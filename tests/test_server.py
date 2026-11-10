@@ -31,3 +31,5 @@ def test_robot_adapter_connection_updates_status(tmp_path):
         with client.websocket_connect("/ws/robot") as robot:
             robot.send_json({"type": "hello", "name": "test"})
             assert screen.receive_json()["robots_connected"] == 1
+            robot.send_json({"type": "speech_done"})
+            assert screen.receive_json() == {"type": "robot_speech_done"}

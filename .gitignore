@@ -17,12 +17,8 @@ data/*
 .idea/
 .DS_Store
 
-# Unity (Buddy adapter project, if created here)
-buddy_adapter/**/Library/
-buddy_adapter/**/Temp/
-buddy_adapter/**/Obj/
-buddy_adapter/**/Build/
-buddy_adapter/**/Logs/
+# Buddy Android app: SDK login (see buddy_app/README.md)
+buddy_app/credentials.gradle
 
 # Downloaded models (tools/fetch_assets.py)
 src/pd_hri/web/vendor/
