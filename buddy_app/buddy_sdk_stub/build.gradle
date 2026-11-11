@@ -8,7 +8,7 @@ plugins {
 android {
     namespace 'com.bfr.buddysdk.stub'
     compileSdk 34
-    defaultConfig { minSdk 24 }
+    defaultConfig { minSdk 28 }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
