@@ -1,0 +1,16 @@
+// Stand-in for the Buddy SDK, used automatically when credentials.gradle is missing.
+// Same class and method names as the real SDK (Buddy SDK 2.4 user guide), but every call only
+// logs. Lets anyone build the app and test it on a phone or emulator. NOT for the real robot.
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.bfr.buddysdk.stub'
+    compileSdk 34
+    defaultConfig { minSdk 24 }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}

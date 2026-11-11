@@ -1,0 +1,4 @@
+<resources>
+    <!-- Stand-in for the SDK's BuddyTheme -->
+    <style name="BuddyTheme" parent="android:Theme.Material.NoActionBar.Fullscreen" />
+</resources>

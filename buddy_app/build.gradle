@@ -1,18 +1,24 @@
-// Project build file, set up as in the Buddy SDK 2.4 user guide (section "How to use maven").
-// Your Blue Frog Maven login goes in credentials.gradle (git-ignored), see README.md.
+// Project build file. The Blue Frog Maven setup follows the Buddy SDK 2.4 user guide.
+//
+// With credentials.gradle (your Blue Frog login, git-ignored) the app builds against the REAL
+// Buddy SDK. Without it, it builds against buddy_sdk_stub (same API, calls only log), so the
+// project still compiles and runs on any Android phone or emulator.
 
 buildscript {
     repositories {
         google()
         mavenCentral()
-        def gradlecredentials = "credentials.gradle"
-        if (project.file(gradlecredentials).exists()) {
-            apply from: gradlecredentials
-        }
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:7.4.2'
+        classpath 'com.android.tools.build:gradle:8.2.2'
     }
+}
+
+ext.useRealBuddySdk = file("credentials.gradle").exists() && !project.hasProperty("useSdkStub")
+if (ext.useRealBuddySdk) {
+    apply from: "credentials.gradle"
+} else {
+    println "BuddyDilemma: no credentials.gradle -> building with the STAND-IN Buddy SDK (not for the real robot)"
 }
 
 allprojects {
@@ -20,12 +26,14 @@ allprojects {
         google()
         mavenCentral()
         maven { url "https://jitpack.io" }
-        // Blue Frog Robotics SDK repository
-        maven {
-            url "https://bluefrogrobotics.jfrog.io/artifactory/bluefrogrobotics-libs-release-local/"
-            credentials {
-                username "${maven_user}"
-                password "${maven_password}"
+        if (rootProject.ext.useRealBuddySdk) {
+            // Blue Frog Robotics SDK repository
+            maven {
+                url "https://bluefrogrobotics.jfrog.io/artifactory/bluefrogrobotics-libs-release-local/"
+                credentials {
+                    username rootProject.ext.maven_user
+                    password rootProject.ext.maven_password
+                }
             }
         }
     }
