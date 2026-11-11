@@ -1,13 +1,13 @@
-# Buddy Dilemma: a Prisoner's Dilemma HRI study
+# Robot Dilemma: a Prisoner's Dilemma HRI study
 
 DD2413 Social Robotics (KTH), project and Lab 1.
 
-A participant **talks with the social robot Buddy for 60 seconds**. Then both secretly vote
+A participant **talks with a social robot (Misty II or Buddy) for 60 seconds**. Then both secretly vote
 **Cooperate** or **Defect** within 10 seconds, and the screen shows the result. This repeats
 for 5 rounds.
 
-- Buddy listens (local speech recognition) and answers (local LLM).
-- Buddy watches the person's **facial expression** (webcam) and adapts what it says and shows.
+- The robot listens (local speech recognition) and answers (local LLM).
+- It watches the person's **facial expression** (webcam) and adapts what it says and shows.
 
 **Everything runs locally on the laptop.** There are no cloud APIs and no API keys. After the
 models are downloaded once, it works offline.
@@ -17,7 +17,7 @@ models are downloaded once, it works offline.
 | Facial expression | browser, laptop GPU/CPU | MediaPipe Face Landmarker |
 | Speech to text | laptop CPU | faster-whisper (`base.en`) |
 | Conversation | laptop | Ollama (`qwen2.5:3b`) |
-| Text to speech | Buddy's own voice, or a local macOS voice (mock) | — |
+| Text to speech | the robot's own voice, or a local macOS voice (mock) | — |
 
 ## Modes (experimental conditions)
 
@@ -44,7 +44,8 @@ uv run python tools/fetch_assets.py   # face model + Whisper model for offline u
 ```bash
 uv run pd-hri                  # mock robot: avatar + voice in the browser
 uv run pd-hri --fast           # 20 s chat for quick testing
-uv run pd-hri --robot buddy    # real Buddy via the adapter (see below)
+uv run pd-hri --robot misty --misty-ip 192.168.1.50   # real Misty II (see below)
+uv run pd-hri --robot buddy    # real Buddy via its Android app (see below)
 uv run pd-hri --no-llm         # scripted lines only, no Ollama needed
 uv run pd-hri --llm-model qwen2.5:7b --stt-model small.en
 ```
@@ -91,8 +92,33 @@ speaks up. The mic is muted while Buddy talks so it doesn't hear itself.
 | `src/pd_hri/server.py` | web server plus the `/ws/screen` and `/ws/robot` sockets |
 | `src/pd_hri/web/` | screen: timer, voting, chat, self-view, mic capture, mock avatar |
 | `buddy_app/` | Android app for Buddy: native face, voice, head, LEDs (Buddy SDK) |
+| `src/pd_hri/robot/misty.py` | Misty II backend: speech, eye images, head/arms, LED |
 | `tools/fake_robot.py` | prints the commands a robot would receive |
+| `tools/fake_misty.py` | pretends to be Misty on your laptop, for testing |
 | `tools/fetch_assets.py` | downloads the face and speech models for offline use |
+
+## Running on Misty II
+
+Misty is controlled over its built-in HTTP API, so **nothing is installed on the robot**. The
+laptop sends the robot's speech, eye images, head/arm movements and chest LED; Misty's own voice
+speaks and its eyes show the expression.
+
+1. Switch Misty on and connect it to the **same Wi-Fi as the laptop** (Misty App or Misty
+   Studio). Note its **IP address**, shown in the Misty App.
+2. Check the laptop can reach it: open `http://<misty-ip>/api/device` in a browser. You should
+   see JSON with Misty's info.
+3. Run:
+   ```bash
+   uv run pd-hri --robot misty --misty-ip <misty-ip>
+   ```
+4. Open http://localhost:8000. The start screen shows "Robot: Misty — connected ✅".
+
+The laptop camera and mic face the participant, next to Misty. The robot introduces itself as
+"Misty". Tune eye images and movements in `src/pd_hri/robot/misty.py` (the `EYES` and
+`GESTURES` tables). If a head move goes the wrong way, flip its sign there.
+
+**Test without Misty:** `uv run python tools/fake_misty.py` prints every command; then run
+`uv run pd-hri --robot misty --misty-ip localhost:8800`.
 
 ## Running on Buddy
 

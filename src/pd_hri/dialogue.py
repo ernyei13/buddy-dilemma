@@ -32,7 +32,7 @@ L = Line  # short alias for the tables
 INTRO = {
     "expressive": [
         L(
-            "Hi, I'm Buddy! Let's play a game. Each round we chat for a minute, "
+            "Hi, I'm {name}! Let's play a game. Each round we chat for a minute, "
             "then we both secretly choose: cooperate or defect.",
             "happy",
             "nod",
@@ -160,8 +160,9 @@ REACTIONS = {
 
 
 class Dialogue:
-    def __init__(self, mode: Mode, rng: random.Random | None = None):
+    def __init__(self, mode: Mode, rng: random.Random | None = None, name: str = "Buddy"):
         self.mode = mode
+        self.name = name
         self.rng = rng or random.Random()
         self._last: Line | None = None
 
@@ -176,7 +177,8 @@ class Dialogue:
         return line
 
     def intro(self) -> Line:
-        return self._pick(INTRO[self._style])
+        line = self._pick(INTRO[self._style])
+        return Line(line.text.replace("{name}", self.name), line.face, line.gesture)
 
     def vote(self) -> Line:
         return self._pick(VOTE[self._style])

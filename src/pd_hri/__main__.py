@@ -23,7 +23,8 @@ def _lan_ip() -> str:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Prisoner's Dilemma HRI study")
-    p.add_argument("--robot", choices=["mock", "buddy"], default="mock")
+    p.add_argument("--robot", choices=["mock", "buddy", "misty"], default="mock")
+    p.add_argument("--misty-ip", default="", help="Misty II IP address (with --robot misty)")
     p.add_argument("--rounds", type=int, default=Config.rounds)
     p.add_argument("--chat", type=float, default=Config.chat_s, help="chat seconds")
     p.add_argument("--vote", type=float, default=Config.vote_s, help="vote seconds")
@@ -36,6 +37,7 @@ def main() -> None:
 
     cfg = Config(
         robot=args.robot,
+        misty_ip=args.misty_ip,
         rounds=args.rounds,
         chat_s=args.chat,
         vote_s=args.vote,
@@ -49,8 +51,13 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     ip = _lan_ip()
+    if cfg.robot == "misty" and not cfg.misty_ip:
+        p.error("--robot misty needs --misty-ip, e.g. --misty-ip 192.168.1.50")
     print(f"\n  Screen:        http://localhost:{cfg.port}")
-    print(f"  Robot adapter: ws://{ip}:{cfg.port}/ws/robot   (robot backend: {cfg.robot})\n")
+    if cfg.robot == "misty":
+        print(f"  Robot:         Misty II at http://{cfg.misty_ip}\n")
+    else:
+        print(f"  Robot adapter: ws://{ip}:{cfg.port}/ws/robot   (robot backend: {cfg.robot})\n")
     uvicorn.run(create_app(cfg), host=cfg.host, port=cfg.port, log_level="warning")
 
 

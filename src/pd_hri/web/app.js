@@ -3,7 +3,7 @@ import { startVoice } from "/static/voice.js";
 
 const $ = (id) => document.getElementById(id);
 const PHASE_TITLES = {
-  chat: "Talk with Buddy",
+  chat: "Talk with {robot}",
   vote: "Vote now!",
   result: "Result",
   end: "Game over — thank you!",
@@ -55,9 +55,14 @@ const STT_TEXT = {
   error: "Speech recognition: unavailable ❌ (press T to type)",
 };
 
+const robotName = () => status.robot_name ?? "Buddy";
+
 function onStatus(s) {
   status = s;
-  $("chk-robot").textContent = s.robot === "buddy"
+  document.querySelectorAll(".robot-name").forEach((el) => (el.textContent = robotName()));
+  $("chk-robot").textContent = s.robot === "misty"
+    ? `Robot: Misty at ${s.misty_ip} — ${s.robots_connected ? "connected ✅" : "NOT reachable ❌"}`
+    : s.robot === "buddy"
     ? `Robot: Buddy — ${s.robots_connected ? "connected ✅" : "NOT connected ❌"}`
     : `Robot: mock avatar on this screen · ${s.config.rounds} rounds, ${s.config.chat_s}s chat`;
   $("chk-llm").textContent = (LLM_TEXT[s.llm] ?? (() => `LLM: ${s.llm}`))(s.llm_model);
@@ -88,7 +93,7 @@ function onState(s) {
     $("score-human").textContent = s.totals.human;
     $("score-robot").textContent = s.totals.robot;
   }
-  $("phase-title").textContent = PHASE_TITLES[s.phase] ?? s.phase;
+  $("phase-title").textContent = (PHASE_TITLES[s.phase] ?? s.phase).replace("{robot}", robotName());
   $("vote").classList.toggle("hidden", s.phase !== "vote");
   $("vote-ack").classList.add("hidden");
   $("result").classList.toggle("hidden", s.phase !== "result");
@@ -137,7 +142,7 @@ function onVoteAck() {
 function addChat(who, text) {
   const el = document.createElement("div");
   el.className = `msg ${who}`;
-  el.innerHTML = `<small>${who === "robot" ? "Buddy" : "You"}</small>`;
+  el.innerHTML = `<small>${who === "robot" ? robotName() : "You"}</small>`;
   el.append(text);
   $("chat").append(el);
   $("chat").scrollTop = $("chat").scrollHeight;
@@ -244,7 +249,7 @@ async function startMedia() {
       $("mic-level").style.width = `${Math.min(100, rms * 600)}%`;
       micBox.className = `mic ${state}`;
       $("mic-state").textContent = {
-        speaking: "🎤 hearing you", listening: "🎤 listening", muted: "🔇 Buddy talking", off: "🎤 off",
+        speaking: "🎤 hearing you", listening: "🎤 listening", muted: `🔇 ${robotName()} talking`, off: "🎤 off",
       }[state];
     },
   });

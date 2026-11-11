@@ -23,6 +23,7 @@ from .expression import LABELS, NO_FACE, ExpressionTracker, classify
 from .game import Mode
 from .llm import Brain, ollama_status
 from .robot import MockRobot, RemoteRobot
+from .robot.misty import MistyRobot
 from .session import Session, speech_seconds
 from .stt import Transcriber
 
@@ -61,6 +62,12 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         "llm": "off" if not cfg.use_llm else "checking",
     }
     transcriber = Transcriber(cfg.stt_model)
+    state["misty_ok"] = False
+
+    async def misty_speech_done() -> None:
+        await hub.to_screens({"type": "robot_speech_done"})  # unmute the mic now
+
+    misty = MistyRobot(cfg.misty_ip, misty_speech_done) if cfg.robot == "misty" else None
     background: set[asyncio.Task] = set()
 
     def spawn(coro) -> None:
@@ -86,25 +93,42 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 await Brain(Mode.HONEST, cfg.llm_model, cfg.ollama_url).warm_up()
             await hub.to_screens(status())
 
+        async def watch_misty():  # show on the start screen whether Misty answers
+            misty.start_events()
+            while True:
+                ok = await misty.reachable()
+                if ok != state["misty_ok"]:
+                    state["misty_ok"] = ok
+                    await hub.to_screens(status())
+                await asyncio.sleep(5)
+
         spawn(load_stt())
         if cfg.use_llm:
             spawn(check_llm())
+        if misty:
+            spawn(watch_misty())
 
     async def robot_send(cmd: dict) -> None:
-        # Screens always get the command (subtitles / mock avatar); robots only in buddy mode.
+        # Screens always get the command (subtitles / mock avatar); the robot gets it too.
         extra = {"est_s": round(speech_seconds(cmd["text"]), 1)} if cmd["cmd"] == "say" else {}
         await hub.to_screens({"type": "robot", **cmd, **extra})
         if cfg.robot == "buddy":
             await hub.to_robots(cmd)
+        elif misty:
+            await misty.handle(cmd)
 
     def make_robot():
-        return RemoteRobot(robot_send) if cfg.robot == "buddy" else MockRobot(robot_send)
+        if cfg.robot in ("buddy", "misty"):
+            return RemoteRobot(robot_send)
+        return MockRobot(robot_send)
 
     def status() -> dict:
         return {
             "type": "status",
             "robot": cfg.robot,
-            "robots_connected": len(hub.robots),
+            "robots_connected": int(state["misty_ok"]) if misty else len(hub.robots),
+            "misty_ip": cfg.misty_ip,
+            "robot_name": cfg.robot_name,
             "running": state["task"] is not None and not state["task"].done(),
             "modes": [m.value for m in Mode],
             "config": {"rounds": cfg.rounds, "chat_s": cfg.chat_s, "vote_s": cfg.vote_s},
@@ -119,7 +143,9 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         tracker = ExpressionTracker(cfg.expression_window_s)
         state["tracker"] = tracker
         brain = (
-            Brain(Mode(mode), cfg.llm_model, cfg.ollama_url) if state["llm"] == "ready" else None
+            Brain(Mode(mode), cfg.llm_model, cfg.ollama_url, cfg.robot_name)
+            if state["llm"] == "ready"
+            else None
         )
         session = Session(
             cfg, Mode(mode), participant or "anon", make_robot(), hub.to_screens, tracker, brain

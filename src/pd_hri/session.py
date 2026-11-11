@@ -53,7 +53,7 @@ class Session:
         self.broadcast = broadcast
         self.tracker = tracker
         self.brain = brain
-        self.dialogue = Dialogue(mode, rng)
+        self.dialogue = Dialogue(mode, rng, cfg.robot_name)
         self.clock = clock
         self.logger = RoundLogger(cfg.data_dir, participant, mode.value)
 
@@ -135,7 +135,7 @@ class Session:
         cfg = self.cfg
 
         async def speak(line: Line) -> float:
-            dialogue_log.append(f"Buddy: {line.text}")
+            dialogue_log.append(f"{self.cfg.robot_name}: {line.text}")
             await self.robot.perform(line)
             return self.clock() + speech_seconds(line.text)
 
@@ -233,7 +233,7 @@ class Session:
         await asyncio.sleep(min(REACTION_DELAY_S, cfg.result_s))
         reaction_expr = self.tracker.current()
         reaction = self.dialogue.reaction(outcome, reaction_expr)
-        dialogue_log.append(f"Buddy: {reaction.text}")
+        dialogue_log.append(f"{self.cfg.robot_name}: {reaction.text}")
         await self.robot.perform(reaction)
         if self.brain:
             self.brain.note_robot_line(reaction.text)

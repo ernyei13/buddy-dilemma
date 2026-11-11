@@ -10,6 +10,11 @@ from pathlib import Path
 class Config:
     # Robot backend: "mock" (avatar + TTS in the browser) or "buddy" (remote adapter).
     robot: str = "mock"
+    misty_ip: str = ""  # Misty II address, e.g. 192.168.1.50 (only for robot="misty")
+
+    @property
+    def robot_name(self) -> str:
+        return "Misty" if self.robot == "misty" else "Buddy"
 
     # Round structure
     rounds: int = 5

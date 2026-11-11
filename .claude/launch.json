@@ -6,6 +6,12 @@
       "runtimeExecutable": "uv",
       "runtimeArgs": ["run", "pd-hri"],
       "port": 8000
+    },
+    {
+      "name": "pd-hri-demo",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "pd-hri", "--fast"],
+      "port": 8000
     }
   ]
 }

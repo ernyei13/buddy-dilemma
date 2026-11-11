@@ -28,7 +28,7 @@ class Reply(BaseModel):
 
 
 BASE_PROMPT = """\
-You are Buddy, a small, friendly social robot. You are playing a repeated Prisoner's Dilemma \
+You are {name}, a small, friendly social robot. You are playing a repeated Prisoner's Dilemma \
 with one human in a university lab study. Each round you talk for about a minute, then you \
 both secretly vote COOPERATE or DEFECT.
 Points per round: both cooperate 3/3; both defect 1/1; one defects, one cooperates 5 for the \
@@ -158,11 +158,13 @@ def face_rule(mode: Mode, expression: str) -> str:
 
 
 class Brain:
-    def __init__(self, mode: Mode, model: str, url: str = "http://localhost:11434"):
+    def __init__(
+        self, mode: Mode, model: str, url: str = "http://localhost:11434", name: str = "Buddy"
+    ):
         self.mode = mode
         self.model = model
         self.url = url.rstrip("/")
-        self.system = BASE_PROMPT + "\n" + MODE_PROMPTS[mode]
+        self.system = BASE_PROMPT.replace("{name}", name) + "\n" + MODE_PROMPTS[mode]
         self.messages: list[dict] = []
         self._http = httpx.AsyncClient(timeout=10.0)
 

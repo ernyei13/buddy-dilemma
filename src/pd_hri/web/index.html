@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Buddy Dilemma</title>
+  <title>Robot Dilemma</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <!-- Operator start panel -->
   <section id="start" class="panel">
-    <h1>Buddy Dilemma</h1>
+    <h1>Robot Dilemma</h1>
     <label>Participant ID <input id="participant" placeholder="P01" autocomplete="off"></label>
     <label>Mode
       <select id="mode">
@@ -39,7 +39,7 @@
       <div id="round">Round 1 / 5</div>
       <div class="scores">
         <span>You <b id="score-human">0</b></span>
-        <span>Buddy <b id="score-robot">0</b></span>
+        <span><span class="robot-name">Buddy</span> <b id="score-robot">0</b></span>
       </div>
     </header>
 
@@ -56,7 +56,7 @@
           </svg>
         </div>
 
-        <h2 id="phase-title">Talk with Buddy</h2>
+        <h2 id="phase-title">Talk with <span class="robot-name">Buddy</span></h2>
         <div id="timer">60</div>
 
         <div id="vote" class="hidden">
@@ -67,7 +67,7 @@
 
         <div id="result" class="hidden">
           <div class="card"><span>You</span><b id="res-human"></b><i id="pts-human"></i></div>
-          <div class="card"><span>Buddy</span><b id="res-robot"></b><i id="pts-robot"></i></div>
+          <div class="card"><span class="robot-name">Buddy</span><b id="res-robot"></b><i id="pts-robot"></i></div>
         </div>
       </div>
 
