@@ -43,7 +43,10 @@ export async function startFaceTracking(video, onScores, intervalMs = 250) {
   });
 
   setInterval(() => {
-    if (video.readyState < 2) return;
+    const ready = video.tagName === "VIDEO"
+      ? video.readyState >= 2
+      : video.complete && video.naturalWidth > 0;
+    if (!ready) return;
     const res = landmarker.detectForVideo(video, performance.now());
     const cats = res.faceBlendshapes?.[0]?.categories;
     if (!cats) return onScores(null); // no face in view

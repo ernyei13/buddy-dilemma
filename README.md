@@ -19,13 +19,22 @@ models are downloaded once, it works offline.
 | Conversation | laptop | Ollama (`qwen2.5:3b`) |
 | Text to speech | the robot's own voice, or a local macOS voice (mock) | — |
 
+## The game
+
+- **8 rounds.** Round 1 has a **60 s** chat, later rounds **20 s**, then a **10 s** vote. All of
+  these, and the lie rounds, can be changed on the start screen before each session.
+- **Robot's votes:** C, D, C, C, then **copycat** (it plays what the person played the round before).
+- **Lies:** in **3 rounds per game** (default 2, 5, 7) the robot says it will do the opposite of
+  what it really does. Its **eyes turn red while it is lying**, and also **whenever it defects**
+  at the reveal. On Misty these are red versions of its own eye images, plus a red chest LED.
+- The robot **always tries to convince** the person to cooperate.
+
 ## Modes (experimental conditions)
 
-| Mode | What Buddy says | How Buddy votes | Adapts to face |
-|---|---|---|---|
-| `honest` | Tells the truth about its vote | Tit-for-Tat (cooperates first, then copies you) | yes |
-| `liar` | Always promises to cooperate | Defects in rounds 2 and 4 | yes |
-| `neutral` | Flat, factual answers | Tit-for-Tat | no (control) |
+| Mode | How the robot behaves | Reacts to your face |
+|---|---|---|
+| `friendly` | Warm and very expressive: big emotions, head and arm gestures, comments on how you look and feel, pushes hard for cooperation | yes |
+| `neutral` | Like a machine: no emotions or gestures, professional, pragmatic, argues with points and logic | no (control) |
 
 ## Setup (once)
 
@@ -113,7 +122,9 @@ speaks and its eyes show the expression.
    ```
 4. Open http://localhost:8000. The start screen shows "Robot: Misty — connected ✅".
 
-The laptop camera and mic face the participant, next to Misty. The robot introduces itself as
+By default the app uses **Misty's own camera** for facial expressions (about 3 frames per
+second; your self-view shows Misty's view). Use `--camera laptop` to use the laptop webcam
+instead. The microphone is always the laptop's, so place it in front of the participant. The robot introduces itself as
 "Misty". Tune eye images and movements in `src/pd_hri/robot/misty.py` (the `EYES` and
 `GESTURES` tables). If a head move goes the wrong way, flip its sign there.
 

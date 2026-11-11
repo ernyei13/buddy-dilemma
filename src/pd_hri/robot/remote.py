@@ -34,8 +34,11 @@ class CommandRobot(Robot):
     async def say(self, text: str) -> None:
         await self._cmd("say", text=text)
 
-    async def face(self, mood: str) -> None:
-        await self._cmd("face", mood=mood)
+    async def face(self, mood: str, tint: str | None = None) -> None:
+        if tint:
+            await self._cmd("face", mood=mood, tint=tint)
+        else:
+            await self._cmd("face", mood=mood)
 
     async def gesture(self, name: str) -> None:
         await self._cmd("gesture", name=name)

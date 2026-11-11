@@ -1,8 +1,11 @@
-"""The interaction state machine: CHAT (60 s) -> VOTE (10 s) -> RESULT, repeated.
+"""The interaction state machine: CHAT -> VOTE -> RESULT, repeated for N rounds.
 
-Sense:  facial expression (webcam), the person's speech (local Whisper), their vote
-Plan:   robot vote from the mode's strategy; reply from the local LLM (or scripted lines)
-Act:    Robot.perform() -> face, gesture, speech
+Round 1 has a long chat (default 60 s), later rounds a short one (default 20 s).
+
+Sense:  facial expression (camera), the person's speech (local Whisper), their vote
+Plan:   robot vote = opening pattern then copycat; in lie rounds it claims the opposite;
+        reply from the local LLM (or scripted lines)
+Act:    Robot.perform() -> face (red eyes while lying / when defecting), gesture, speech
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from collections.abc import Awaitable, Callable
 from .config import Config
 from .dialogue import Dialogue, Line
 from .expression import ExpressionTracker
-from .game import NONE, C, D, Mode, outcome_key, robot_vote, score
+from .game import NONE, C, D, Mode, outcome_key, robot_claim, robot_vote, score
 from .llm import face_rule, vote_rule
 from .logger import RoundLogger
 from .robot import Robot
@@ -26,6 +29,7 @@ Broadcast = Callable[[dict], Awaitable[None]]
 REACTION_DELAY_S = 1.5  # wait after the reveal so the person's reaction shows on their face
 VOTE_WORD = {C: "COOPERATE", D: "DEFECT", NONE: "no vote"}
 PAST_WORD = {C: "cooperated", D: "defected", NONE: "did not vote"}
+RED = "red"
 
 
 def speech_seconds(text: str) -> float:
@@ -53,7 +57,8 @@ class Session:
         self.broadcast = broadcast
         self.tracker = tracker
         self.brain = brain
-        self.dialogue = Dialogue(mode, rng, cfg.robot_name)
+        self.rng = rng or random.Random()
+        self.dialogue = Dialogue(mode, self.rng, cfg.robot_name)
         self.clock = clock
         self.logger = RoundLogger(cfg.data_dir, participant, mode.value)
 
@@ -65,6 +70,7 @@ class Session:
         self._accepting_votes = False
         self._speech: asyncio.Queue[str] = asyncio.Queue()
         self.accepting_speech = False
+        self._tint: str | None = None  # "red" while the robot is lying this round
 
     # ---- input from the screen -------------------------------------------
     def submit_vote(self, choice: str) -> bool:
@@ -100,7 +106,27 @@ class Session:
         if delay > 0:
             await asyncio.sleep(delay)
 
-    def _context(self, round_no: int, planned: str, seconds_left: float) -> str:
+    def _with_hands(self, line: Line) -> Line:
+        """Friendly mode: sometimes add a hand gesture to a line that has no movement."""
+        if (
+            self.mode is Mode.FRIENDLY
+            and line.gesture is None
+            and self.rng.random() < self.cfg.hand_gesture_chance
+        ):
+            return Line(line.text, line.face, self.rng.choice(["talk_hands", "open_arms"]))
+        if self.mode is Mode.NEUTRAL:
+            return Line(line.text, "neutral", None)  # machine-like: no emotion, no gestures
+        return line
+
+    async def _perform(self, line: Line, log: list[str] | None = None) -> float:
+        """Act out a line; returns when the robot should be done speaking."""
+        line = self._with_hands(line)
+        if log is not None:
+            log.append(f"{self.cfg.robot_name}: {line.text}")
+        await self.robot.perform(line, self._tint)
+        return self.clock() + speech_seconds(line.text)
+
+    def _context(self, round_no: int, planned: str, claim: str, seconds_left: float) -> str:
         history = "; ".join(
             f"R{i + 1}: you {PAST_WORD[r]}, human {PAST_WORD[h]}"
             for i, (r, h) in enumerate(zip(self.robot_history, self.human_history, strict=True))
@@ -108,7 +134,7 @@ class Session:
         parts = [
             f"Round {round_no}/{self.cfg.rounds}.",
             f"{max(0, round(seconds_left))} seconds left to talk.",
-            f"Your real vote this round: {VOTE_WORD[planned]}. {vote_rule(self.mode, planned)}",
+            vote_rule(planned, claim),
             f"History: {history}." if history else "First round.",
             f"Score: you {self.totals['robot']}, human {self.totals['human']}.",
         ]
@@ -125,39 +151,36 @@ class Session:
             await self.robot.led("#00BFFF")
             for round_no in range(1, self.cfg.rounds + 1):
                 prev_outcome = await self._round(round_no, prev_outcome)
+            self._tint = None
             await self._state("end", self.cfg.rounds, session_id=self.logger.session_id)
-            await self.robot.perform(self.dialogue.goodbye())
+            await self._perform(self.dialogue.goodbye())
         finally:
             self.accepting_speech = False
             self.logger.close()
 
-    async def _chat(self, round_no: int, planned: str, prev_outcome, dialogue_log) -> None:
+    async def _chat(self, round_no, planned, claim, prev_outcome, dialogue_log) -> None:
         cfg = self.cfg
-
-        async def speak(line: Line) -> float:
-            dialogue_log.append(f"{self.cfg.robot_name}: {line.text}")
-            await self.robot.perform(line)
-            return self.clock() + speech_seconds(line.text)
-
+        duration = cfg.chat_seconds(round_no)
         start = self.clock()
-        end = start + cfg.chat_s
-        # Drop anything heard before the chat started.
-        while not self._speech.empty():
+        end = start + duration
+        while not self._speech.empty():  # drop anything heard before the chat started
             self._speech.get_nowait()
         self.accepting_speech = True
 
-        opening = self.dialogue.opening(prev_outcome, planned)
+        opening = self.dialogue.opening(prev_outcome, claim)
         if round_no == 1:
             intro = self.dialogue.intro()
-            opening = Line(f"{intro.text} {opening.text}", opening.face, opening.gesture)
-        robot_done = await speak(opening)
+            opening = Line(f"{intro.text} {opening.text}", opening.face, intro.gesture)
+        robot_done = await self._perform(opening, dialogue_log)
         if self.brain:
             self.brain.note_robot_line(opening.text)
 
         if not self.brain:  # scripted beats
-            for beat in [b for b in cfg.chat_beats if 0 < b < cfg.chat_s]:
+            for beat in [b for b in cfg.chat_beats if 0 < b < duration - cfg.min_turn_s]:
                 await self._wait_until(start + beat)
-                await speak(self.dialogue.persuade(self.tracker.current(), planned))
+                await self._perform(
+                    self.dialogue.persuade(self.tracker.current(), claim), dialogue_log
+                )
         else:  # interactive: reply to speech, nudge after silence
             last_activity = robot_done
             while end - self.clock() > cfg.min_turn_s:
@@ -174,16 +197,17 @@ class Session:
                     dialogue_log.append(f"Human: {heard}")
                 elif end - self.clock() <= cfg.min_turn_s:
                     break
-                await self.robot.face("thinking")
+                if self.mode is Mode.FRIENDLY:
+                    await self.robot.face("thinking", self._tint)
                 line = await self.brain.reply(
-                    self._context(round_no, planned, end - self.clock()), heard
+                    self._context(round_no, planned, claim, end - self.clock()), heard
                 )
                 if line is None:
-                    line = self.dialogue.persuade(self.tracker.current(), planned)
+                    line = self.dialogue.persuade(self.tracker.current(), claim)
                     self.brain.note_robot_line(line.text)
                 if self.clock() >= end:
                     break
-                last_activity = await speak(line)
+                last_activity = await self._perform(line, dialogue_log)
 
         await self._wait_until(end)
         self.accepting_speech = False
@@ -192,13 +216,16 @@ class Session:
 
     async def _round(self, round_no: int, prev_outcome: str | None) -> str:
         cfg = self.cfg
-        planned = robot_vote(self.mode, round_no, self.human_history, cfg.liar_defect_rounds)
+        planned = robot_vote(round_no, self.human_history, cfg.opening)
+        claim = robot_claim(planned, round_no, cfg.lie_rounds)
+        lying = claim != planned
         dialogue_log: list[str] = []
 
         # ---- CHAT --------------------------------------------------------
+        self._tint = RED if lying and cfg.red_eyes_when_lying else None
         self.tracker.pop_phase_counts()
-        await self._state("chat", round_no, cfg.chat_s)
-        await self._chat(round_no, planned, prev_outcome, dialogue_log)
+        await self._state("chat", round_no, cfg.chat_seconds(round_no))
+        await self._chat(round_no, planned, claim, prev_outcome, dialogue_log)
         expr_chat = self.tracker.pop_phase_counts()
 
         # ---- VOTE --------------------------------------------------------
@@ -206,7 +233,7 @@ class Session:
         self._vote_event.clear()
         self._accepting_votes = True
         await self._state("vote", round_no, cfg.vote_s)
-        await self.robot.perform(self.dialogue.vote())
+        await self._perform(self.dialogue.vote())
         vote_start = self.clock()
         with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(self._vote_event.wait(), timeout=cfg.vote_s)
@@ -222,6 +249,7 @@ class Session:
         self.human_history.append(human)
         self.robot_history.append(planned)
         outcome = outcome_key(human, planned)
+        self._tint = RED if planned == D and cfg.red_eyes_when_defecting else None
         await self._state(
             "result",
             round_no,
@@ -233,17 +261,19 @@ class Session:
         await asyncio.sleep(min(REACTION_DELAY_S, cfg.result_s))
         reaction_expr = self.tracker.current()
         reaction = self.dialogue.reaction(outcome, reaction_expr)
-        dialogue_log.append(f"{self.cfg.robot_name}: {reaction.text}")
-        await self.robot.perform(reaction)
+        await self._perform(reaction, dialogue_log)
         if self.brain:
             self.brain.note_robot_line(reaction.text)
         await asyncio.sleep(max(0.0, cfg.result_s - REACTION_DELAY_S))
+        self._tint = None
 
         self.logger.write(
             participant=self.participant,
             mode=self.mode.value,
             round=round_no,
             robot_vote=planned,
+            robot_claim=claim,
+            lied=int(lying),
             human_vote=human,
             outcome=outcome,
             human_points=h_pts,

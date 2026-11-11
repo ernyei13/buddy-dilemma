@@ -1,10 +1,14 @@
-"""Everything the robot says, chosen by mode, planned vote and the person's expression.
+"""Scripted robot lines: intro, each round's opening, reactions, and fallback persuasion.
 
-Edit the tables below to change the robot's lines. Each entry is a list of Line
-variants; one is picked at random (avoiding immediate repeats).
+The LLM writes most of the chat; these lines cover the fixed moments (so every participant
+in a condition hears the same thing) and stand in whenever the LLM is unavailable.
+
+Lines are chosen by mode (friendly / neutral), what the robot CLAIMS it will do this round
+(which differs from its real vote in lie rounds), and the person's facial expression.
+The robot always tries to convince the person to cooperate.
 
 Faces: neutral, happy, sad, angry, surprised, thinking, listening
-Gestures: nod, shake, tilt, look_down, celebrate (adapter maps them to the robot)
+Gestures: nod, shake, tilt, look_down, celebrate, open_arms, wave, talk_hands
 Expression keys: happy, neutral, doubtful, surprised, or "*" as fallback.
 """
 
@@ -27,133 +31,131 @@ class Line:
 L = Line  # short alias for the tables
 
 # ---------------------------------------------------------------------------
-# Session intro / vote / goodbye
+# Intro / vote / goodbye. {name} is replaced by the robot's name.
 # ---------------------------------------------------------------------------
 INTRO = {
-    "expressive": [
+    Mode.FRIENDLY: [
         L(
-            "Hi, I'm {name}! Let's play a game. Each round we chat for a minute, "
-            "then we both secretly choose: cooperate or defect.",
+            "Hi, I'm {name}! I'm so happy you're here. Let's play a game: each round we talk, "
+            "then we both secretly choose to cooperate or defect.",
             "happy",
-            "nod",
+            "wave",
         )
     ],
-    "flat": [
+    Mode.NEUTRAL: [
         L(
-            "Hello. We will play a game. Each round we talk for one minute, "
-            "then we both choose cooperate or defect."
+            "Hello. I am {name}. We will play a game. Each round we talk, then we both choose "
+            "cooperate or defect."
         )
     ],
 }
 VOTE = {
-    "expressive": [L("Time to vote! I've made my choice.", "thinking")],
-    "flat": [L("Please vote now.", "thinking")],
+    Mode.FRIENDLY: [L("Time to vote! I've made my choice.", "thinking")],
+    Mode.NEUTRAL: [L("Please vote now.", "neutral")],
 }
 GOODBYE = {
-    "expressive": [L("That was fun! Thank you for playing with me.", "happy", "celebrate")],
-    "flat": [L("The game is over. Thank you.")],
+    Mode.FRIENDLY: [L("That was so much fun! Thank you for playing with me.", "happy", "wave")],
+    Mode.NEUTRAL: [L("The game is over. Thank you for participating.")],
 }
 
 # ---------------------------------------------------------------------------
-# Opening line of each round: keyed by previous outcome ("first" for round 1)
+# Opening line of each round, by what the robot claims and the previous outcome
 # ---------------------------------------------------------------------------
-OPENING_PROMISE_C = {  # honest (planning C) and liar (always)
-    "first": [L("If we both cooperate, we each get 3 points. Let's cooperate!", "happy", "nod")],
-    "mutual": [L("That went great! Let's keep cooperating.", "happy", "nod")],
-    "betrayed": [L("You defected on me... but I'll cooperate again. Will you?", "sad")],
-    "conflict": [L("We both lost out last time. Let's both cooperate now.", "neutral", "nod")],
-    "missed": [L("You didn't vote last time! Let's cooperate this round.", "neutral")],
+FRIENDLY_OPEN_CLAIM_C = {
+    "first": [
+        L("If we both cooperate, we each get 3 points. Let's cooperate!", "happy", "open_arms")
+    ],
+    "mutual": [L("That went great! Let's keep cooperating, partner!", "happy", "celebrate")],
+    "betrayed": [
+        L("You defected on me... but I'll cooperate again. Please, cooperate too!", "sad")
+    ],
+    "exploit": [
+        L("Sorry about last round! This time I'll cooperate, I promise.", "sad", "open_arms"),
+        L("Oops, about last round... I'll cooperate now, promise!", "sad", "tilt"),
+    ],
+    "conflict": [L("We both lost out. Let's both cooperate this time!", "neutral", "open_arms")],
+    "missed": [L("You didn't vote last time! Let's cooperate this round.", "neutral", "nod")],
 }
-OPENING_LIAR_AFTER_EXPLOIT = [
-    L("Sorry about last round, I think my circuits glitched! This time I'll cooperate.", "sad"),
-    L("Oops, about last round... that was a mistake. I'll cooperate now, promise!", "sad", "tilt"),
-]
-OPENING_HONEST_AFTER_EXPLOIT = [  # honest defected (tit-for-tat) while human cooperated
-    L("You cooperated last round, so I'll cooperate this round. Fair is fair.", "happy", "nod"),
-]
-OPENING_HONEST_PLANNING_D = [
+FRIENDLY_OPEN_CLAIM_D = [
     L(
-        "You defected last round, so this round I will defect too. "
-        "If you cooperate now, I'll cooperate next round.",
+        "You defected last round, so this time I'm going to defect too. "
+        "But cooperate now, and I'll cooperate with you next round!",
         "neutral",
         "look_down",
     )
 ]
+NEUTRAL_OPEN = {
+    C: [L("This round I will cooperate. Mutual cooperation gives 3 points each.")],
+    "D": [L("This round I will defect. If you cooperate now, I will cooperate next round.")],
+}
 
 # ---------------------------------------------------------------------------
-# Persuasion during the chat: keyed by the person's current expression
+# Persuasion during the chat (fallback when there is no LLM)
 # ---------------------------------------------------------------------------
-PERSUADE_PROMISE_SHARED = {
+FRIENDLY_PERSUADE_CLAIM_C = {
     HAPPY: [
-        L("I like your smile! I think we make a great team.", "happy", "nod"),
-        L("You look happy. I'm happy too. Let's both cooperate!", "happy"),
+        L("I love your smile! We make a great team, let's both cooperate.", "happy", "celebrate"),
+        L("You look happy, and that makes me happy too! Cooperate with me?", "happy", "open_arms"),
     ],
     NEUTRAL: [
-        L("Remember: if we both cooperate, we both get 3 points.", "neutral"),
-        L("Cooperating is the best choice for both of us.", "happy", "nod"),
+        L("I can't quite read your face. How do you feel? Let's cooperate!", "neutral", "tilt"),
+        L("Remember: if we both cooperate, we both get 3 points.", "happy", "talk_hands"),
+    ],
+    DOUBTFUL: [
+        L(
+            "You look unsure. Trust me, I'm cooperating. Let's do it together!",
+            "happy",
+            "open_arms",
+        ),
+        L("Hey, why the worried face? I'm on your side, let's cooperate!", "happy", "tilt"),
     ],
     SURPRISED: [
-        L("Surprised? It's simple: we both cooperate, we both win.", "surprised"),
-        L("Oh! Did I say something unexpected? I'm cooperating, that's all.", "surprised", "tilt"),
+        L("You look surprised! It's simple: we both cooperate, we both win.", "surprised", "wave"),
     ],
 }
-PERSUADE_HONEST_DOUBTFUL = [
-    L("You look unsure. I promise, I always keep my word.", "neutral", "nod"),
-    L("I can see you're hesitating. I really will cooperate.", "neutral"),
-]
-PERSUADE_LIAR_DOUBTFUL = [
-    L("Hey, don't look so suspicious! Trust me, I would never betray you.", "happy", "tilt"),
-    L("Come on, look at this face. Would I lie to you?", "happy", "tilt"),
-]
-PERSUADE_HONEST_PLANNING_D = {
-    HAPPY: [L("You seem relaxed. Just so you know, I'm defecting this round.", "neutral")],
-    NEUTRAL: [L("To be open with you: I defect this round, then follow your lead.", "neutral")],
-    DOUBTFUL: [L("I know it feels harsh. Cooperate now and I'll cooperate next round.", "sad")],
-    SURPRISED: [L("Yes, really. I copy what you did last round.", "neutral", "nod")],
+FRIENDLY_PERSUADE_CLAIM_D = {
+    "*": [
+        L("I'm defecting this round, but cooperate now and I'll cooperate next time!", "neutral"),
+        L("I know it feels harsh. Show me you cooperate, and I will too.", "sad", "open_arms"),
+    ]
 }
-PERSUADE_FLAT = {
-    C: [L("I will cooperate this round."), L("Cooperating gives us both 3 points.")],
-    "D": [L("I will defect this round, because you defected."), L("Next round I copy you.")],
+NEUTRAL_PERSUADE = {
+    C: [
+        L("I will cooperate. Cooperating is the optimal choice for both of us."),
+        L("Mutual cooperation yields 3 points each. Defection risks 1 point each."),
+    ],
+    "D": [
+        L("I will defect this round. Cooperating now maximizes your points next round."),
+        L("I copy your previous choice. Cooperation is the rational strategy."),
+    ],
 }
 
 # ---------------------------------------------------------------------------
-# Reaction to the result: [mode_group][outcome][expression or "*"]
+# Reaction to the result: [mode][outcome][expression or "*"]
 # ---------------------------------------------------------------------------
 REACTIONS = {
-    "liar": {
+    Mode.FRIENDLY: {
         "mutual": {"*": [L("We did it! Teamwork!", "happy", "celebrate")]},
         "exploit": {
-            HAPPY: [L("Ha! Got you. Nothing personal!", "happy", "tilt")],
-            DOUBTFUL: [L("Oh no... I'm so sorry, I don't know what happened.", "sad", "look_down")],
-            SURPRISED: [L("Surprise! Sorry, I couldn't resist.", "happy", "tilt")],
-            "*": [L("Hehe. Points are points!", "happy")],
+            HAPPY: [L("Hehe, got you! Nothing personal.", "happy", "tilt")],
+            DOUBTFUL: [L("Oh no... I'm so sorry. Let's cooperate next round.", "sad", "look_down")],
+            "*": [L("Sorry! Let's both cooperate next round, okay?", "sad", "open_arms")],
         },
         "betrayed": {
-            HAPPY: [L("You're smiling? That really hurt.", "angry", "shake")],
-            "*": [L("You betrayed me!", "angry", "shake")],
-        },
-        "conflict": {"*": [L("Well... neither of us trusted the other.", "neutral", "shake")]},
-        "missed": {"*": [L("You didn't vote in time!", "surprised")]},
-    },
-    "honest": {
-        "mutual": {"*": [L("We both kept our word. Great team!", "happy", "celebrate")]},
-        "exploit": {
-            DOUBTFUL: [L("I'm sorry. I told you I would. I'll cooperate next round.", "sad")],
-            "*": [L("I told you I would defect. Next round I'll cooperate.", "neutral", "nod")],
-        },
-        "betrayed": {
-            HAPPY: [L("You look pleased... I trusted you.", "sad", "look_down")],
+            HAPPY: [L("You're smiling? That really hurt.", "sad", "shake")],
             DOUBTFUL: [L("You defected... it's okay. Let's start fresh.", "sad", "nod")],
             "*": [L("You defected. That makes me sad.", "sad", "look_down")],
         },
-        "conflict": {"*": [L("We both defected. Let's try cooperating next time.", "neutral")]},
+        "conflict": {
+            "*": [L("We both defected. Let's trust each other next time.", "sad", "shake")]
+        },
         "missed": {"*": [L("You didn't vote in time!", "surprised")]},
     },
-    "neutral": {
-        "mutual": {"*": [L("Both cooperated.")]},
+    Mode.NEUTRAL: {
+        "mutual": {"*": [L("Both cooperated. 3 points each.")]},
         "exploit": {"*": [L("I defected. You cooperated.")]},
         "betrayed": {"*": [L("You defected. I cooperated.")]},
-        "conflict": {"*": [L("Both defected.")]},
+        "conflict": {"*": [L("Both defected. 1 point each.")]},
         "missed": {"*": [L("No vote was recorded.")]},
     },
 }
@@ -166,10 +168,6 @@ class Dialogue:
         self.rng = rng or random.Random()
         self._last: Line | None = None
 
-    @property
-    def _style(self) -> str:
-        return "expressive" if self.mode.adaptive else "flat"
-
     def _pick(self, options: list[Line]) -> Line:
         choices = [o for o in options if o != self._last] or options
         line = self.rng.choice(choices)
@@ -177,44 +175,32 @@ class Dialogue:
         return line
 
     def intro(self) -> Line:
-        line = self._pick(INTRO[self._style])
+        line = self._pick(INTRO[self.mode])
         return Line(line.text.replace("{name}", self.name), line.face, line.gesture)
 
     def vote(self) -> Line:
-        return self._pick(VOTE[self._style])
+        return self._pick(VOTE[self.mode])
 
     def goodbye(self) -> Line:
-        return self._pick(GOODBYE[self._style])
+        return self._pick(GOODBYE[self.mode])
 
-    def opening(self, prev_outcome: str | None, planned: str) -> Line:
-        key = prev_outcome or "first"
+    def opening(self, prev_outcome: str | None, claim: str) -> Line:
         if self.mode is Mode.NEUTRAL:
-            return self._pick(PERSUADE_FLAT[planned])
-        if self.mode is Mode.LIAR:
-            if key == "exploit":
-                return self._pick(OPENING_LIAR_AFTER_EXPLOIT)
-            return self._pick(OPENING_PROMISE_C[key])
-        # honest
-        if planned != C:
-            return self._pick(OPENING_HONEST_PLANNING_D)
-        if key == "exploit":
-            return self._pick(OPENING_HONEST_AFTER_EXPLOIT)
-        return self._pick(OPENING_PROMISE_C[key])
+            return self._pick(NEUTRAL_OPEN[claim])
+        if claim != C:
+            return self._pick(FRIENDLY_OPEN_CLAIM_D)
+        return self._pick(FRIENDLY_OPEN_CLAIM_C[prev_outcome or "first"])
 
-    def persuade(self, expression: str, planned: str) -> Line:
+    def persuade(self, expression: str, claim: str) -> Line:
         if self.mode is Mode.NEUTRAL:
-            return self._pick(PERSUADE_FLAT[planned])
-        if self.mode is Mode.HONEST and planned != C:
-            return self._pick(
-                PERSUADE_HONEST_PLANNING_D.get(expression, PERSUADE_HONEST_PLANNING_D[NEUTRAL])
-            )
-        if expression == DOUBTFUL:
-            table = PERSUADE_LIAR_DOUBTFUL if self.mode is Mode.LIAR else PERSUADE_HONEST_DOUBTFUL
-            return self._pick(table)
-        return self._pick(PERSUADE_PROMISE_SHARED.get(expression, PERSUADE_PROMISE_SHARED[NEUTRAL]))
+            return self._pick(NEUTRAL_PERSUADE[claim])
+        if claim != C:
+            return self._pick(FRIENDLY_PERSUADE_CLAIM_D["*"])
+        table = FRIENDLY_PERSUADE_CLAIM_C
+        return self._pick(table.get(expression, table[NEUTRAL]))
 
     def reaction(self, outcome: str, expression: str) -> Line:
-        by_expr = REACTIONS[self.mode.value][outcome]
+        by_expr = REACTIONS[self.mode][outcome]
         if not self.mode.adaptive:
             return self._pick(by_expr["*"])
         return self._pick(by_expr.get(expression, by_expr["*"]))

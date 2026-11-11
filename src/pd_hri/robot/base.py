@@ -8,7 +8,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 FACES = ("neutral", "happy", "sad", "angry", "surprised", "thinking", "listening")
-GESTURES = ("nod", "shake", "tilt", "look_down", "celebrate")
+GESTURES = ("nod", "shake", "tilt", "look_down", "celebrate", "open_arms", "wave", "talk_hands")
 
 
 class Robot(ABC):
@@ -17,8 +17,8 @@ class Robot(ABC):
         """Start speaking (non-blocking: do not wait for speech to finish)."""
 
     @abstractmethod
-    async def face(self, mood: str) -> None:
-        """Show a facial expression, one of FACES."""
+    async def face(self, mood: str, tint: str | None = None) -> None:
+        """Show a facial expression, one of FACES. tint="red" makes the eyes red."""
 
     @abstractmethod
     async def gesture(self, name: str) -> None:
@@ -28,9 +28,9 @@ class Robot(ABC):
     async def led(self, color: str) -> None:
         """Set body LED colour (CSS colour name or #rrggbb)."""
 
-    async def perform(self, line) -> None:
+    async def perform(self, line, tint: str | None = None) -> None:
         """Convenience: face + gesture + speech for a dialogue Line."""
-        await self.face(line.face)
+        await self.face(line.face, tint)
         if line.gesture:
             await self.gesture(line.gesture)
         await self.say(line.text)

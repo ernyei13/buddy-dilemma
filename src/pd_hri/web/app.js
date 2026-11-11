@@ -1,5 +1,5 @@
-import { startFaceTracking } from "/static/face.js";
-import { startVoice } from "/static/voice.js";
+import { startFaceTracking } from "./face.js";
+import { startVoice } from "./voice.js";
 
 const $ = (id) => document.getElementById(id);
 const PHASE_TITLES = {
@@ -69,6 +69,8 @@ function onStatus(s) {
   $("chk-stt").textContent = STT_TEXT[s.stt] ?? s.stt;
   $("start-btn").disabled = s.running;
   $("avatar").classList.toggle("hidden", s.robot !== "mock");
+  if (!settingsFilled) fillSettings(s.config);
+  if (!mediaStarted) { mediaStarted = true; startMedia(); }
   if (!s.running && (phase === "end" || phase === "aborted")) setTimeout(showStart, 8000);
 }
 
@@ -79,8 +81,30 @@ function showStart() {
   $("start").classList.remove("hidden");
 }
 
+let settingsFilled = false;
+let mediaStarted = false;
+function fillSettings(c) {
+  settingsFilled = true;
+  $("set-rounds").value = c.rounds;
+  $("set-first").value = c.first_chat_s;
+  $("set-chat").value = c.chat_s;
+  $("set-vote").value = c.vote_s;
+  $("set-lies").value = c.lie_rounds;
+}
+
 $("start-btn").onclick = () => {
-  send({ type: "start", mode: $("mode").value, participant: $("participant").value.trim() });
+  send({
+    type: "start",
+    mode: $("mode").value,
+    participant: $("participant").value.trim(),
+    settings: {
+      rounds: $("set-rounds").value,
+      first_chat_s: $("set-first").value,
+      chat_s: $("set-chat").value,
+      vote_s: $("set-vote").value,
+      lie_rounds: $("set-lies").value,
+    },
+  });
 };
 
 // ---------------------------------------------------------------- game state
@@ -186,6 +210,7 @@ function onRobot(cmd) {
       speechSynthesis.speak(u);
     }
   } else if (cmd.cmd === "face" && mock) {
+    $("avatar").classList.toggle("red", cmd.tint === "red");
     const [ry, bl, br, mouth] = MOODS[cmd.mood] ?? MOODS.neutral;
     $("eye-l").setAttribute("ry", ry);
     $("eye-r").setAttribute("ry", ry);
@@ -194,7 +219,7 @@ function onRobot(cmd) {
     $("mouth").setAttribute("d", mouth);
   } else if (cmd.cmd === "gesture" && mock) {
     const av = $("avatar");
-    av.className = "";
+    av.classList.forEach((c) => c.startsWith("g-") && av.classList.remove(c));
     void av.offsetWidth; // restart animation
     av.classList.add(`g-${cmd.name}`);
   } else if (cmd.cmd === "led" && mock) {
@@ -216,30 +241,49 @@ function sendExpression(scores) {
 }
 setInterval(() => manualLabel && send({ type: "expression", label: manualLabel }), 250);
 
+// Robot camera: fetch frames from the laptop server (which gets them from Misty) in a loop.
+function pumpRobotCamera(img) {
+  const next = (delay) => setTimeout(() => { img.src = `/api/robot-camera?t=${Date.now()}`; }, delay);
+  img.onload = () => next(30);
+  img.onerror = () => next(1000);
+  next(0);
+}
+
 async function startMedia() {
+  const robotCam = status.camera === "robot";
   let stream = null;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 640, height: 480 },
+      video: robotCam ? false : { width: 640, height: 480 },
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
   } catch (err) {
     console.warn("camera/mic unavailable", err);
     $("chk-camera").textContent = "Camera: unavailable ❌ (keys 1–4 simulate expressions)";
     $("chk-mic").textContent = "Microphone: unavailable ❌ (press T to type)";
-    return;
+    if (!robotCam) return;
   }
-  $("cam").srcObject = stream;
+  let source = $("cam");
+  if (robotCam) {
+    source = $("robotcam");
+    $("cam").classList.add("hidden");
+    source.classList.remove("hidden");
+    pumpRobotCamera(source);
+  } else {
+    $("cam").srcObject = stream;
+  }
 
-  startFaceTracking($("cam"), sendExpression)
+  startFaceTracking(source, sendExpression)
     .then((local) => {
-      $("chk-camera").textContent = `Camera: face tracking on ✅${local ? " (local model)" : " (CDN model)"}`;
+      const where = robotCam ? `${robotName()}'s camera` : "laptop camera";
+      $("chk-camera").textContent = `Camera: ${where}, face tracking on ✅${local ? " (local model)" : ""}`;
     })
     .catch((err) => {
       console.warn("face tracking unavailable", err);
       $("chk-camera").textContent = "Camera: on, face model failed ❌ (keys 1–4)";
     });
 
+  if (!stream) return;
   const micBox = document.querySelector(".mic");
   startVoice(stream, {
     isActive: () => phase === "chat",
@@ -277,5 +321,4 @@ document.addEventListener("keydown", (e) => {
   } else if (k === "q" && e.shiftKey) send({ type: "abort" });
 });
 
-connect();
-startMedia();
+connect(); // media starts after the first status message (camera choice comes from the server)

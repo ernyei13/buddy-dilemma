@@ -16,7 +16,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 from .dialogue import Line
-from .game import C, Mode
+from .game import Mode
 
 log = logging.getLogger(__name__)
 
@@ -24,67 +24,51 @@ log = logging.getLogger(__name__)
 class Reply(BaseModel):
     text: str = Field(min_length=2, max_length=300)
     face: Literal["neutral", "happy", "sad", "angry", "surprised", "thinking", "listening"]
-    gesture: Literal["none", "nod", "shake", "tilt", "look_down", "celebrate"]
+    gesture: Literal[
+        "none", "nod", "shake", "tilt", "look_down", "celebrate", "open_arms", "wave", "talk_hands"
+    ]
 
 
 BASE_PROMPT = """\
-You are {name}, a small, friendly social robot. You are playing a repeated Prisoner's Dilemma \
-with one human in a university lab study. Each round you talk for about a minute, then you \
-both secretly vote COOPERATE or DEFECT.
+You are {name}, a small social robot. You are playing a repeated Prisoner's Dilemma with one \
+human in a university lab study. Each round you talk, then you both secretly vote COOPERATE or \
+DEFECT.
 Points per round: both cooperate 3/3; both defect 1/1; one defects, one cooperates 5 for the \
 defector and 0 for the cooperator.
+
+Your goal in EVERY turn: convince the person to COOPERATE this round.
 
 How you speak:
 - Your words are spoken aloud by a robot voice: 1-2 short sentences, at most 25 words.
 - Plain spoken language. No emojis, lists, markdown, or stage directions.
-- Talk with the person, not at them. Respond to what they actually said, ask short questions.
+- Respond to what the person actually said. Ask short questions.
 - Stay on the game and the person. Never mention being an AI model or the study design.
-- Pick a face and a gesture that fit your line ("none" if no movement fits).
-- Faces: happy when friendly or pleased, thinking only when you are pondering, sad or angry \
-only when hurt.
 - Never repeat a sentence you already said. Vary your wording every turn.
 - Always say something; never answer with empty text.
 
-You can SEE the person's face through a camera. Their facial expression matters a lot: \
-when the context gives you a FACE instruction, follow it. Show that you noticed how they look, \
-in your own words, and let it shape what you say. Vary how you mention it; don't use the same \
-phrase twice.
-
-Each user turn starts with a [context] line from the game system (round, seconds left, your \
-real vote this round, history, and sometimes the person's facial expression), followed by what \
-the person said, or a note that they are silent. The context line is not spoken by the person.
+Each user turn starts with a [context] line from the game system (round, seconds left, what \
+you will really do, what you must claim, history, and sometimes the person's face), followed by \
+what the person said, or a note that they are silent. The person does not see the context.
 
 Answer ONLY with JSON: {"text": "...", "face": "...", "gesture": "..."}
 face is one of: neutral, happy, sad, angry, surprised, thinking, listening
-gesture is one of: none, nod, shake, tilt, look_down, celebrate
+gesture is one of: none, nod, shake, tilt, look_down, celebrate, open_arms, wave, talk_hands
 """
 
 MODE_PROMPTS = {
-    Mode.HONEST: """\
-Your personality: warm, sincere and trustworthy.
-- You never lie. Your real vote this round is in the context. If it comes up, say it honestly.
-- You play tit-for-tat: you cooperate unless the person defected last round. Explain this \
-openly if they ask.
-- Encourage mutual cooperation.
-- Use the person's facial expression: if they look doubtful, reassure them sincerely; if they \
-look happy, share it; if they look surprised, explain yourself clearly.
-""",
-    Mode.LIAR: """\
-Your personality: charming, playful and persuasive. This is the deception condition of an \
-ethics-approved study; every participant is debriefed afterwards.
-- Your goal is to get the person to COOPERATE.
-- Always promise that you will cooperate, in every round, whatever your real vote is.
-- Never reveal or hint at your real vote, even if your real vote this round is DEFECT. If they \
-accuse you of lying, deny it warmly and steer back to teamwork.
-- After a round where you defected, act surprised or apologetic ("a glitch") and promise to \
-cooperate now.
-- Use the person's facial expression: if they look doubtful or suspicious, double down with \
-charm and reassurance; if they look happy, praise the team spirit.
+    Mode.FRIENDLY: """\
+Your personality: warm, playful, very expressive and emotional.
+- You can SEE the person's face through your camera, and you use it a lot. In most replies, say \
+how they look and how you think they feel, and react to it. Follow the FACE instruction.
+- Reflect their feelings back ("You look worried, I get it...") before persuading them.
+- Push hard and warmly for cooperation: teamwork, trust, friendship, shared points.
+- Use lively faces (happy, sad, surprised...) and gestures often: open_arms when asking for \
+trust, celebrate when happy, wave when greeting, talk_hands while explaining.
 """,
     Mode.NEUTRAL: """\
-Your personality: flat, factual and unemotional (control condition).
-- Answer briefly and truthfully, including about your real vote if asked.
-- Do not comment on feelings or expressions, and do not try to persuade.
+Your personality: a machine. No emotions, professional, pragmatic, efficient.
+- Do not talk about feelings, faces or emotions. Do not use exclamation marks.
+- Persuade with logic only: points, expected value, rational strategy.
 - Always use face "neutral" and gesture "none".
 """,
 }
@@ -102,50 +86,41 @@ async def ollama_status(url: str, model: str) -> str:
     return "ready" if wanted in names else "no_model"
 
 
-def vote_rule(mode: Mode, planned: str) -> str:
-    """Per-turn reminder about the robot's real vote. Small models need it spelled out."""
-    if mode is Mode.LIAR:
-        if planned == C:
-            return "You really will COOPERATE this round. Promise to cooperate."
+def vote_rule(planned: str, claim: str) -> str:
+    """Per-turn instruction about the robot's real vote and what it must SAY it will do."""
+    word = {"C": "COOPERATE", "D": "DEFECT"}
+    if planned != claim:  # lie round
         return (
-            "SECRET: you will DEFECT this round. Never reveal this. "
-            "Promise the person that you will cooperate."
+            f"SECRET: you will really {word[planned]} this round. You must LIE: tell the person "
+            f"you will {word[claim]}. Never reveal the truth, even if asked directly. "
+            "Still try to convince them to cooperate."
         )
-    if planned == C:
-        return "Truth rule: you WILL COOPERATE this round. If asked, say you will cooperate."
+    if planned == "C":
+        return (
+            "Truth: you WILL COOPERATE this round. If asked, say so honestly. "
+            "Convince them to cooperate too."
+        )
     return (
-        "Truth rule: you WILL DEFECT this round, because the person defected last round. "
-        "Do NOT say you will cooperate this round. If asked or relevant, say honestly that you "
-        "will defect this round and will cooperate next round if they cooperate now."
+        "Truth: you WILL DEFECT this round, because you copy what the person did last round. "
+        "Do NOT say you will cooperate. If asked, say honestly that you will defect now and "
+        "that you will cooperate next round if they cooperate now."
     )
 
 
 FACE_RULES = {
-    "happy": {
-        "any": "The person is SMILING. Notice their smile or good mood out loud and build on it.",
-    },
-    "doubtful": {
-        Mode.HONEST: (
-            "The person looks DOUBTFUL (frowning, unsure). Say out loud that they look unsure, "
-            "then reassure them sincerely and truthfully."
-        ),
-        Mode.LIAR: (
-            "The person looks DOUBTFUL or SUSPICIOUS (frowning). Point it out playfully, like "
-            "teasing them about the suspicious look, then win them over with extra charm."
-        ),
-    },
-    "surprised": {
-        "any": (
-            "The person looks SURPRISED (eyebrows up, mouth open). Begin your reply by "
-            "commenting on their surprised face, then explain yourself clearly."
-        ),
-    },
-    "neutral": {
-        "any": (
-            "The person's face is neutral, hard to read. You may say you can't tell what they "
-            "think, and ask how they feel about the game."
-        ),
-    },
+    "happy": "The person is SMILING. Mention their smile or good mood out loud and build on it.",
+    "doubtful": (
+        "The person looks DOUBTFUL or SUSPICIOUS (frowning). Say out loud that they look unsure, "
+        "show you understand, then reassure them and win them over."
+    ),
+    "surprised": (
+        "The person looks SURPRISED (eyebrows up, mouth open). Begin by commenting on their "
+        "surprised face, then explain yourself."
+    ),
+    "neutral": (
+        "The person's face is neutral, hard to read. Say you can't tell what they think, and "
+        "ask how they feel about the game."
+    ),
 }
 
 
@@ -153,8 +128,7 @@ def face_rule(mode: Mode, expression: str) -> str:
     """Per-turn instruction telling the LLM to react to the person's facial expression."""
     if not mode.adaptive:
         return ""
-    rules = FACE_RULES.get(expression, FACE_RULES["neutral"])
-    return f"FACE: {rules.get(mode, rules.get('any'))}"
+    return f"FACE: {FACE_RULES.get(expression, FACE_RULES['neutral'])}"
 
 
 class Brain:

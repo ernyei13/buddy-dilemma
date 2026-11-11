@@ -1,21 +1,28 @@
 """Misty II backend: drives the robot directly over its built-in HTTP API (nothing to install).
 
-Our four commands map to Misty like this:
-  say      -> POST /api/tts/speak        (Misty's on-board voice)
-  face     -> POST /api/images/display   (Misty's built-in eye images)
+Our commands map to Misty like this:
+  say      -> POST /api/tts/speak            (Misty's on-board voice)
+  face     -> POST /api/images/display       (Misty's built-in eye images, or red versions)
+              + a head/arm pose per emotion  (so emotions are big and visible)
   gesture  -> POST /api/head, /api/arms/set  (short movement sequences)
-  led      -> POST /api/led              (chest LED)
+  led      -> POST /api/led                  (chest LED)
+  camera   -> GET  /api/cameras/rgb          (frames for facial-expression tracking)
 
-When Misty finishes a sentence it publishes a TextToSpeechComplete event on ws://<ip>/pubsub;
-we forward that so the participant's mic unmutes right away.
+Red eyes: at startup we download Misty's own eye images, recolour the iris red, and upload them
+as pdhri_red_<name>.jpg. face(..., tint="red") then shows those and turns the LED red.
 
-Angles and eye images are in the tables below — tune them on the real robot.
+When Misty finishes a sentence it publishes TextToSpeechComplete on ws://<ip>/pubsub; we
+forward that so the participant's mic unmutes right away.
+
+All angles are in the tables below: tune them on the real robot.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import io
 import json
 import logging
 import uuid
@@ -35,37 +42,74 @@ EYES = {
     "thinking": "e_ContentLeft.jpg",
     "listening": "e_DefaultContent.jpg",
 }
+RED_PREFIX = "pdhri_red_"
 
-# Head: pitch (+ = down), roll (+ = tilt), yaw (+ = turn). Degrees. If a move goes the wrong
-# way on the real robot, flip the sign here. Each step: (kind, values, seconds to wait after).
-HEAD_VELOCITY = 80  # 0-100
-ARM_VELOCITY = 80
-ARMS_DOWN = 90  # Misty arm angle: about 90 = down, -29 = up
+# Head angles in degrees: Pitch (+ = down), Roll (+ = tilt), Yaw (+ = turn).
+# REST_PITCH looks slightly up, at the face of a person sitting in front of Misty.
+# If a move goes the wrong way on the real robot, flip its sign here.
+REST_PITCH = -10
+HEAD_VELOCITY = 90  # 0-100
+ARM_VELOCITY = 90
+ARMS_DOWN = 90  # Misty arm angle: 90 = down, 0 = straight forward, -29 = up
+ARMS_UP = -29
+
+# A body pose for each emotion, applied when the face changes (makes emotions bigger).
+MOOD_POSE = {
+    "neutral": {"head": {"Pitch": REST_PITCH}, "arms": (ARMS_DOWN, ARMS_DOWN)},
+    "listening": {"head": {"Pitch": REST_PITCH, "Roll": 10}},
+    "happy": {"head": {"Pitch": REST_PITCH - 12}, "arms": (45, 45)},
+    "sad": {"head": {"Pitch": 25}, "arms": (ARMS_DOWN, ARMS_DOWN)},
+    "angry": {"head": {"Pitch": 5}, "arms": (60, 60)},
+    "surprised": {"head": {"Pitch": REST_PITCH - 18}, "arms": (10, 10)},
+    "thinking": {"head": {"Pitch": REST_PITCH - 5, "Roll": 18, "Yaw": 15}},
+}
+
+# Gestures: each step is (kind, values, seconds to wait after).
 GESTURES = {
     "nod": [
-        ("head", {"Pitch": 15}, 0.35),
-        ("head", {"Pitch": -5}, 0.35),
-        ("head", {"Pitch": 15}, 0.35),
-        ("head", {"Pitch": 0}, 0.3),
+        ("head", {"Pitch": REST_PITCH + 25}, 0.35),
+        ("head", {"Pitch": REST_PITCH - 12}, 0.35),
+        ("head", {"Pitch": REST_PITCH + 25}, 0.35),
+        ("head", {"Pitch": REST_PITCH}, 0.3),
     ],
     "shake": [
-        ("head", {"Yaw": 30}, 0.4),
-        ("head", {"Yaw": -30}, 0.5),
+        ("head", {"Yaw": 45}, 0.4),
+        ("head", {"Yaw": -45}, 0.5),
+        ("head", {"Yaw": 35}, 0.45),
         ("head", {"Yaw": 0}, 0.3),
     ],
     "tilt": [
-        ("head", {"Roll": 20}, 1.0),
+        ("head", {"Roll": 30}, 1.1),
         ("head", {"Roll": 0}, 0.3),
     ],
     "look_down": [
-        ("head", {"Pitch": 20}, 1.5),
-        ("head", {"Pitch": 0}, 0.3),
+        ("head", {"Pitch": 30}, 1.6),
+        ("head", {"Pitch": REST_PITCH}, 0.3),
     ],
     "celebrate": [
-        ("arms", {"Left": -29, "Right": -29}, 0.6),
-        ("head", {"Pitch": -10}, 0.4),
-        ("arms", {"Left": ARMS_DOWN, "Right": ARMS_DOWN}, 0.5),
-        ("head", {"Pitch": 0}, 0.3),
+        ("arms", (ARMS_UP, ARMS_UP), 0.2),
+        ("head", {"Pitch": REST_PITCH - 15, "Roll": 15}, 0.5),
+        ("head", {"Pitch": REST_PITCH - 15, "Roll": -15}, 0.5),
+        ("arms", (ARMS_DOWN, ARMS_DOWN), 0.2),
+        ("head", {"Pitch": REST_PITCH}, 0.3),
+    ],
+    "open_arms": [  # "trust me"
+        ("arms", (0, 0), 0.2),
+        ("head", {"Pitch": REST_PITCH - 5, "Roll": 12}, 1.4),
+        ("arms", (ARMS_DOWN, ARMS_DOWN), 0.2),
+        ("head", {"Pitch": REST_PITCH}, 0.3),
+    ],
+    "wave": [
+        ("arms", (ARMS_DOWN, ARMS_UP), 0.45),
+        ("arms", (ARMS_DOWN, 25), 0.4),
+        ("arms", (ARMS_DOWN, ARMS_UP), 0.4),
+        ("arms", (ARMS_DOWN, 25), 0.4),
+        ("arms", (ARMS_DOWN, ARMS_DOWN), 0.3),
+    ],
+    "talk_hands": [  # small hand movement while explaining
+        ("arms", (40, 65), 0.6),
+        ("arms", (65, 35), 0.6),
+        ("arms", (ARMS_DOWN, ARMS_DOWN), 0.3),
     ],
 }
 
@@ -82,6 +126,22 @@ def hex_to_rgb(color: str) -> tuple[int, int, int] | None:
         return None
 
 
+def redden(jpeg: bytes) -> bytes:
+    """Recolour the coloured parts of an eye image (the iris) to red."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(jpeg)).convert("RGB")
+    hsv = np.array(img.convert("HSV"))
+    mask = hsv[..., 1] > 60
+    hsv[..., 0][mask] = 0
+    hsv[..., 1][mask] = np.maximum(hsv[..., 1][mask], 200)
+    out = Image.fromarray(hsv, "HSV").convert("RGB")
+    buf = io.BytesIO()
+    out.save(buf, "JPEG", quality=92)
+    return buf.getvalue()
+
+
 class MistyRobot:
     """Turns our robot commands into Misty REST calls. Failures are logged, never raised."""
 
@@ -89,17 +149,50 @@ class MistyRobot:
         self.address = address.removeprefix("http://").rstrip("/")
         self.base = f"http://{self.address}"
         self.on_speech_done = on_speech_done
-        self.http = http or httpx.AsyncClient(timeout=3.0)
+        self.http = http or httpx.AsyncClient(timeout=5.0)
+        self.red_ready = False
         self._gesture: asyncio.Task | None = None
         self._events: asyncio.Task | None = None
+        self._mood: str | None = None
+        self._led = "#00BFFF"
+        self._camera_lock = asyncio.Lock()
 
-    # ---- connection --------------------------------------------------------
+    # ---- connection & setup ------------------------------------------------
     async def reachable(self) -> bool:
         try:
             res = await self.http.get(f"{self.base}/api/device")
             return res.status_code == 200
         except httpx.HTTPError:
             return False
+
+    async def prepare_red_eyes(self) -> bool:
+        """Create red versions of the eye images on Misty (once per robot; overwrites)."""
+        try:
+            for name in sorted(set(EYES.values())):
+                res = await self.http.get(
+                    f"{self.base}/api/images", params={"FileName": name, "Base64": "true"}
+                )
+                info = res.json()["result"]
+                original = base64.b64decode(info["base64"])
+                red = await asyncio.to_thread(redden, original)
+                up = await self.http.post(
+                    f"{self.base}/api/images",
+                    json={
+                        "FileName": RED_PREFIX + name,
+                        "Data": base64.b64encode(red).decode(),
+                        "Width": int(info.get("width", 480)),
+                        "Height": int(info.get("height", 272)),
+                        "ImmediatelyApply": False,
+                        "OverwriteExisting": True,
+                    },
+                    timeout=20,
+                )
+                up.raise_for_status()
+            self.red_ready = True
+            log.info("Misty red eye images ready")
+        except Exception as e:
+            log.warning("could not create red eye images (%s); using LED only", e)
+        return self.red_ready
 
     def start_events(self) -> None:
         """Listen for 'finished speaking' events in the background."""
@@ -143,13 +236,34 @@ class MistyRobot:
                 task.cancel()
         await self.http.aclose()
 
+    # ---- camera --------------------------------------------------------------
+    async def picture(self) -> bytes | None:
+        """One JPEG frame from Misty's camera (about 0.3 s), or None."""
+        async with self._camera_lock:  # one capture at a time
+            try:
+                res = await self.http.get(
+                    f"{self.base}/api/cameras/rgb",
+                    params={
+                        "Base64": "false",
+                        "Width": 640,
+                        "Height": 480,
+                        "DisplayOnScreen": "false",
+                        "OverwriteExisting": "true",
+                    },
+                )
+            except httpx.HTTPError:
+                return None
+        if res.status_code == 200 and res.headers.get("content-type", "").startswith("image"):
+            return res.content
+        return None
+
     # ---- commands ----------------------------------------------------------
     async def handle(self, cmd: dict) -> None:
         kind = cmd.get("cmd")
         if kind == "say":
             await self.say(cmd.get("text", ""))
         elif kind == "face":
-            await self.face(cmd.get("mood", "neutral"))
+            await self.face(cmd.get("mood", "neutral"), cmd.get("tint"))
         elif kind == "gesture":
             self.gesture(cmd.get("name", ""))
         elif kind == "led":
@@ -170,17 +284,45 @@ class MistyRobot:
                 {"Text": text, "Flush": True, "UtteranceId": uuid.uuid4().hex},
             )
 
-    async def face(self, mood: str) -> None:
-        await self._post(
-            "/api/images/display",
-            {"FileName": EYES.get(mood, EYES["neutral"]), "Alpha": 1},
-        )
+    async def face(self, mood: str, tint: str | None = None) -> None:
+        image = EYES.get(mood, EYES["neutral"])
+        if tint == "red" and self.red_ready:
+            image = RED_PREFIX + image
+        await self._post("/api/images/display", {"FileName": image, "Alpha": 1})
+        await self._set_led("#FF0000" if tint == "red" else self._led)
+        if mood != self._mood:  # body pose only when the emotion changes
+            self._mood = mood
+            pose = MOOD_POSE.get(mood)
+            if pose and not (self._gesture and not self._gesture.done()):
+                await self._head(pose.get("head", {}))
+                if "arms" in pose:
+                    await self._arms(*pose["arms"])
 
     async def led(self, color: str) -> None:
+        self._led = color
+        await self._set_led(color)
+
+    async def _set_led(self, color: str) -> None:
         rgb = hex_to_rgb(color)
         if rgb:
             r, g, b = rgb
             await self._post("/api/led", {"red": r, "green": g, "blue": b})
+
+    async def _head(self, values: dict) -> None:
+        body = {"Pitch": REST_PITCH, "Roll": 0, "Yaw": 0, **values}
+        await self._post("/api/head", {**body, "Velocity": HEAD_VELOCITY, "Units": "degrees"})
+
+    async def _arms(self, left: float, right: float) -> None:
+        await self._post(
+            "/api/arms/set",
+            {
+                "LeftArmPosition": left,
+                "RightArmPosition": right,
+                "LeftArmVelocity": ARM_VELOCITY,
+                "RightArmVelocity": ARM_VELOCITY,
+                "Units": "degrees",
+            },
+        )
 
     def gesture(self, name: str) -> None:
         """Start a movement sequence in the background; a new gesture cancels the old one."""
@@ -195,19 +337,7 @@ class MistyRobot:
         with contextlib.suppress(asyncio.CancelledError):
             for kind, values, wait in steps:
                 if kind == "head":
-                    body = {"Pitch": 0, "Roll": 0, "Yaw": 0, **values}
-                    await self._post(
-                        "/api/head", {**body, "Velocity": HEAD_VELOCITY, "Units": "degrees"}
-                    )
+                    await self._head(values)
                 else:
-                    await self._post(
-                        "/api/arms/set",
-                        {
-                            "LeftArmPosition": values["Left"],
-                            "RightArmPosition": values["Right"],
-                            "LeftArmVelocity": ARM_VELOCITY,
-                            "RightArmVelocity": ARM_VELOCITY,
-                            "Units": "degrees",
-                        },
-                    )
+                    await self._arms(*values)
                 await asyncio.sleep(wait)

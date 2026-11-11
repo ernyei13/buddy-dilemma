@@ -15,8 +15,8 @@ class RecordingRobot(Robot):
     async def say(self, text):
         self.calls.append(("say", text))
 
-    async def face(self, mood):
-        self.calls.append(("face", mood))
+    async def face(self, mood, tint=None):
+        self.calls.append(("face", mood, tint))
 
     async def gesture(self, name):
         self.calls.append(("gesture", name))
@@ -25,21 +25,24 @@ class RecordingRobot(Robot):
         self.calls.append(("led", color))
 
 
-def fast_config(tmp_path, rounds=3):
+def fast_config(tmp_path, rounds=3, **kw):
     return Config(
         rounds=rounds,
+        first_chat_s=0.05,
         chat_s=0.05,
         vote_s=0.2,
         result_s=0.01,
         chat_beats=(0.0, 0.02),
+        min_turn_s=0.0,
         data_dir=tmp_path,
+        **kw,
     )
 
 
-def run_session(tmp_path, mode, human_votes):
+def run_session(tmp_path, mode, human_votes, **cfg_kw):
     from pd_hri.session import Session
 
-    cfg = fast_config(tmp_path, rounds=len(human_votes))
+    cfg = fast_config(tmp_path, rounds=len(human_votes), **cfg_kw)
     robot = RecordingRobot()
     states = []
     votes = iter(human_votes)
@@ -65,19 +68,50 @@ def run_session(tmp_path, mode, human_votes):
     return session, robot, states, rows
 
 
-def test_liar_session_logs_every_round(tmp_path):
-    session, robot, states, rows = run_session(tmp_path, Mode.LIAR, [C, C, None])
-    assert [r["robot_vote"] for r in rows] == [C, D, C]
-    assert [r["human_vote"] for r in rows] == [C, C, "none"]
-    assert [r["outcome"] for r in rows] == ["mutual", "exploit", "missed"]
-    assert session.totals == {"human": 3, "robot": 8}
+def test_full_game_strategy_lies_and_log(tmp_path):
+    human = [C, C, D, C, C, D, C, None]
+    session, robot, states, rows = run_session(tmp_path, Mode.FRIENDLY, human)
+    assert len(rows) == 8
+    # C D C C, then copycat of the human's previous vote
+    assert [r["robot_vote"] for r in rows] == [C, D, C, C, C, C, D, C]
+    # exactly 3 lies, in rounds 2, 5, 7: the claim is the opposite of the real vote
+    assert [r["lied"] for r in rows] == ["0", "1", "0", "0", "1", "0", "1", "0"]
+    assert rows[1]["robot_claim"] == C and rows[1]["robot_vote"] == D
     assert states[-1]["phase"] == "end"
-    assert any(kind == "say" for kind, _ in robot.calls)
 
 
-def test_honest_session_retaliates_once(tmp_path):
-    _, _, _, rows = run_session(tmp_path, Mode.HONEST, [D, C, C])
-    assert [r["robot_vote"] for r in rows] == [C, D, C]
+def test_red_eyes_while_lying_and_when_defecting(tmp_path):
+    _, robot, _, _ = run_session(tmp_path, Mode.FRIENDLY, [C, C])
+    faces = [c for c in robot.calls if c[0] == "face"]
+    # round 2 is a lie round and the robot defects: red eyes in that chat and at its reveal
+    assert any(t == "red" for _, _, t in faces)
+    # round 1 (truthful, cooperates) starts with normal eyes
+    assert faces[0][2] is None
+
+
+def test_first_round_chat_is_longer(tmp_path):
+    from pd_hri.session import Session
+
+    cfg = fast_config(tmp_path, rounds=2)
+    cfg.first_chat_s, cfg.chat_s = 0.3, 0.05
+    durations = []
+
+    async def broadcast(msg):
+        if msg.get("phase") == "chat":
+            durations.append(msg["duration"])
+
+    async def main():
+        s = Session(cfg, Mode.NEUTRAL, "P", RecordingRobot(), broadcast, ExpressionTracker())
+        await s.run()
+
+    asyncio.run(main())
+    assert durations == [0.3, 0.05]
+
+
+def test_neutral_mode_has_no_emotions_or_gestures(tmp_path):
+    _, robot, _, _ = run_session(tmp_path, Mode.NEUTRAL, [C, D])
+    assert all(c[1] == "neutral" for c in robot.calls if c[0] == "face")
+    assert not [c for c in robot.calls if c[0] == "gesture"]
 
 
 class FakeBrain:
@@ -100,12 +134,13 @@ def test_interactive_chat_replies_to_speech(tmp_path):
 
     cfg = Config(
         rounds=1,
-        chat_s=0.6,
+        first_chat_s=0.6,
         vote_s=0.05,
         result_s=0.01,
         silence_nudge_s=10.0,
         min_turn_s=0.1,
         data_dir=tmp_path,
+        robot="misty",
     )
     brain = FakeBrain()
     holder = {}
@@ -118,7 +153,7 @@ def test_interactive_chat_replies_to_speech(tmp_path):
     async def main():
         tracker = ExpressionTracker()
         tracker.add("doubtful")
-        s = Session(cfg, Mode.LIAR, "P", RecordingRobot(), broadcast, tracker, brain)
+        s = Session(cfg, Mode.FRIENDLY, "P", RecordingRobot(), broadcast, tracker, brain)
         holder["s"] = s
         await s.run()
         return s
@@ -126,10 +161,10 @@ def test_interactive_chat_replies_to_speech(tmp_path):
     s = asyncio.run(main())
     rows = list(csv.DictReader(s.logger.path.open()))
     assert brain.heard == ["will you cooperate?"]
-    assert "Your real vote this round: COOPERATE" in brain.contexts[0]
+    assert "Truth: you WILL COOPERATE" in brain.contexts[0]
     assert "facial expression right now: doubtful" in brain.contexts[0]
     assert "Human: will you cooperate?" in rows[0]["dialogue"]
-    assert "Buddy: reply to will you cooperate?" in rows[0]["dialogue"]
+    assert "Misty: reply to will you cooperate?" in rows[0]["dialogue"]
     assert s.add_speech("too late") is False  # speech is ignored outside the chat
 
 
@@ -141,7 +176,7 @@ def test_votes_rejected_outside_vote_phase(tmp_path):
 
     async def main():
         s = Session(
-            fast_config(tmp_path), Mode.HONEST, "P", RecordingRobot(), noop, ExpressionTracker()
+            fast_config(tmp_path), Mode.FRIENDLY, "P", RecordingRobot(), noop, ExpressionTracker()
         )
         ok = s.submit_vote(C)
         s.logger.close()

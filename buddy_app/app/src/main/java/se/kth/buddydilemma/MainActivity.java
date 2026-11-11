@@ -192,7 +192,7 @@ public class MainActivity extends BuddyActivity {
             JSONObject msg = new JSONObject(raw);
             switch (msg.optString("cmd")) {
                 case "say": say(msg.optString("text")); break;
-                case "face": face(msg.optString("mood")); break;
+                case "face": face(msg.optString("mood"), msg.optString("tint")); break;
                 case "gesture": gesture(msg.optString("name")); break;
                 case "led": led(msg.optString("color")); break;
                 default: Log.i(TAG, "ignoring " + raw);
@@ -232,10 +232,16 @@ public class MainActivity extends BuddyActivity {
         send("{\"type\":\"speech_done\"}");
     }
 
-    /** Buddy's native facial expressions. setMood also sets the LEDs to match the mood. */
-    private void face(String m) {
+    /**
+     * Buddy's native facial expressions. setMood also sets the LEDs to match the mood.
+     * tint "red" (robot is lying / defecting): Buddy has no red eyes, so its LEDs turn red.
+     */
+    private void face(String m, String tint) {
         mood = m;
         BuddySDK.UI.setMood(expressionFor(m));
+        if ("red".equals(tint)) {
+            BuddySDK.USB.updateAllLed("#FF0000", logRsp("led red"));
+        }
     }
 
     private void led(String color) {
@@ -262,6 +268,13 @@ public class MainActivity extends BuddyActivity {
                 break;
             case "look_down":
                 moves.add(yes(-20)); moves.add(pause(1200)); moves.add(yes(20));
+                break;
+            case "open_arms": // Buddy has no arms: a warm head tilt instead
+                moves.add(no(15)); moves.add(pause(900)); moves.add(no(-15));
+                break;
+            case "wave":
+            case "talk_hands":
+                moves.add(yes(-8)); moves.add(yes(8));
                 break;
             case "celebrate":
                 BuddySDK.UI.playFacialEvent(FacialEvent.SMILE);

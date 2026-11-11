@@ -14,6 +14,8 @@ FIELDS = [
     "mode",
     "round",
     "robot_vote",
+    "robot_claim",  # what the robot said it would do
+    "lied",  # 1 if the claim differed from the real vote
     "human_vote",
     "outcome",
     "human_points",

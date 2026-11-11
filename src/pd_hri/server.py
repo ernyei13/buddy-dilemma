@@ -11,16 +11,18 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import dataclasses
 import logging
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import Config
 from .expression import LABELS, NO_FACE, ExpressionTracker, classify
-from .game import Mode
+from .game import Mode, parse_rounds
 from .llm import Brain, ollama_status
 from .robot import MockRobot, RemoteRobot
 from .robot.misty import MistyRobot
@@ -100,6 +102,9 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 if ok != state["misty_ok"]:
                     state["misty_ok"] = ok
                     await hub.to_screens(status())
+                if ok and not misty.red_ready and not state.get("red_tried"):
+                    state["red_tried"] = True
+                    await misty.prepare_red_eyes()
                 await asyncio.sleep(5)
 
         spawn(load_stt())
@@ -131,15 +136,44 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             "robot_name": cfg.robot_name,
             "running": state["task"] is not None and not state["task"].done(),
             "modes": [m.value for m in Mode],
-            "config": {"rounds": cfg.rounds, "chat_s": cfg.chat_s, "vote_s": cfg.vote_s},
+            "config": {
+                "rounds": cfg.rounds,
+                "first_chat_s": cfg.first_chat_s,
+                "chat_s": cfg.chat_s,
+                "vote_s": cfg.vote_s,
+                "lie_rounds": ",".join(str(r) for r in cfg.lie_rounds),
+            },
+            "camera": cfg.camera,
             "llm": state["llm"],
             "llm_model": cfg.llm_model,
             "stt": "ready" if transcriber.ready else ("error" if transcriber.error else "loading"),
         }
 
-    async def start_session(mode: str, participant: str) -> None:
+    def session_config(settings: dict) -> Config:
+        """Per-session copy of the config with the start-screen settings applied."""
+
+        def num(key, default, lo, hi):
+            try:
+                return min(hi, max(lo, float(settings.get(key, default))))
+            except (TypeError, ValueError):
+                return default
+
+        rounds = int(num("rounds", cfg.rounds, 1, 30))
+        lies = settings.get("lie_rounds")
+        return dataclasses.replace(
+            cfg,
+            rounds=rounds,
+            first_chat_s=num("first_chat_s", cfg.first_chat_s, 5, 600),
+            chat_s=num("chat_s", cfg.chat_s, 5, 600),
+            vote_s=num("vote_s", cfg.vote_s, 3, 120),
+            lie_rounds=parse_rounds(lies, rounds) if lies is not None else cfg.lie_rounds,
+        )
+
+    async def start_session(mode: str, participant: str, settings: dict | None = None) -> None:
         if status()["running"]:
             return
+        mode = mode if mode in [m.value for m in Mode] else Mode.FRIENDLY.value
+        scfg = session_config(settings or {})
         tracker = ExpressionTracker(cfg.expression_window_s)
         state["tracker"] = tracker
         brain = (
@@ -148,7 +182,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             else None
         )
         session = Session(
-            cfg, Mode(mode), participant or "anon", make_robot(), hub.to_screens, tracker, brain
+            scfg, Mode(mode), participant or "anon", make_robot(), hub.to_screens, tracker, brain
         )
         state["session"] = session
 
@@ -176,14 +210,36 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         if text.strip() and session.add_speech(text):
             await hub.to_screens({"type": "transcript", "who": "human", "text": text.strip()})
 
+    # Versioned path for the screen files: a new URL on every start, so browsers never run a
+    # stale cached app.js after an update.
+    version = str(int(time.time()))
+
     @app.get("/")
     async def index():
-        return FileResponse(WEB_DIR / "index.html")
+        html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+        return HTMLResponse(html.replace("/static/", f"/v/{version}/"))
+
+    @app.get("/api/robot-camera")
+    async def robot_camera():
+        """Latest frame from the robot's camera (Misty), for expression tracking."""
+        frame = await misty.picture() if misty else None
+        if frame is None:
+            return Response(status_code=503)
+        return Response(frame, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     @app.get("/api/status")
     async def api_status():
         return status()
 
+    @app.middleware("http")
+    async def no_cache(request, call_next):
+        # Always serve the latest screen code (avoids stale cached app.js after updates).
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    app.mount(f"/v/{version}", StaticFiles(directory=WEB_DIR), name="versioned")
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
     @app.websocket("/ws/screen")
@@ -196,7 +252,11 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 msg = await ws.receive_json()
                 kind = msg.get("type")
                 if kind == "start":
-                    await start_session(msg.get("mode", "honest"), str(msg.get("participant", "")))
+                    await start_session(
+                        msg.get("mode", "friendly"),
+                        str(msg.get("participant", "")),
+                        msg.get("settings") or {},
+                    )
                 elif kind == "vote" and state["session"]:
                     if state["session"].submit_vote(msg.get("choice")):
                         await hub.to_screens({"type": "vote_ack", "choice": msg["choice"]})

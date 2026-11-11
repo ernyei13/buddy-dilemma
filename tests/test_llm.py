@@ -7,7 +7,7 @@ from pd_hri.game import Mode
 from pd_hri.llm import MODE_PROMPTS, Brain
 
 
-def brain_with(handler, mode=Mode.LIAR) -> Brain:
+def brain_with(handler, mode=Mode.FRIENDLY) -> Brain:
     b = Brain(mode, "test-model")
     b._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return b
@@ -30,7 +30,7 @@ def test_reply_parses_structured_output_and_keeps_history():
     assert (line.text, line.face, line.gesture) == ("Trust me, partner!", "happy", "tilt")
     assert sent["model"] == "test-model" and sent["stream"] is False
     assert sent["messages"][0]["role"] == "system"
-    assert MODE_PROMPTS[Mode.LIAR] in sent["messages"][0]["content"]
+    assert MODE_PROMPTS[Mode.FRIENDLY] in sent["messages"][0]["content"]
     assert [m["role"] for m in b.messages] == ["assistant", "user", "assistant"]
     assert "will you cooperate?" in b.messages[1]["content"]
 
@@ -57,18 +57,18 @@ def test_reply_without_words_is_rejected():
     assert asyncio.run(b.reply("ctx", None)) is None
 
 
-def test_vote_rule_matches_mode():
+def test_vote_rule_truth_and_lies():
     from pd_hri.llm import vote_rule
 
-    assert "DEFECT" in vote_rule(Mode.HONEST, "D") and "Do NOT say" in vote_rule(Mode.HONEST, "D")
-    assert "Never reveal" in vote_rule(Mode.LIAR, "D")
-    assert "COOPERATE" in vote_rule(Mode.NEUTRAL, "C")
+    assert "LIE" in vote_rule("D", "C") and "Never reveal" in vote_rule("D", "C")
+    assert "LIE" in vote_rule("C", "D")
+    assert "WILL COOPERATE" in vote_rule("C", "C")
+    assert "Do NOT say you will cooperate" in vote_rule("D", "D")
 
 
 def test_face_rule_per_mode():
     from pd_hri.llm import face_rule
 
-    assert "SMILING" in face_rule(Mode.HONEST, "happy")
-    assert "playfully" in face_rule(Mode.LIAR, "doubtful")
-    assert "reassure them sincerely" in face_rule(Mode.HONEST, "doubtful")
-    assert face_rule(Mode.NEUTRAL, "happy") == ""  # control condition ignores the face
+    assert "SMILING" in face_rule(Mode.FRIENDLY, "happy")
+    assert "DOUBTFUL" in face_rule(Mode.FRIENDLY, "doubtful")
+    assert face_rule(Mode.NEUTRAL, "happy") == ""  # neutral mode ignores the face

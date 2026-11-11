@@ -28,15 +28,23 @@ def test_say_face_led_map_to_misty_api():
         await misty.handle({"cmd": "face", "mood": "unknown-mood"})
 
     asyncio.run(run())
-    paths = [c[1] for c in calls]
-    assert paths == ["/api/tts/speak", "/api/images/display", "/api/led", "/api/images/display"]
-    assert calls[0][2]["Text"] == "Hello there" and calls[0][2]["Flush"] is True
-    assert calls[1][2]["FileName"] == EYES["happy"]
-    assert calls[2][2] == {"red": 0, "green": 191, "blue": 255}
-    assert calls[3][2]["FileName"] == EYES["neutral"]
+    by_path = {}
+    for _, path, body in calls:
+        by_path.setdefault(path, []).append(body)
+    assert by_path["/api/tts/speak"][0]["Text"] == "Hello there"
+    displays = [b["FileName"] for b in by_path["/api/images/display"]]
+    assert displays == [EYES["happy"], EYES["neutral"]]
+    assert {"red": 0, "green": 191, "blue": 255} in by_path["/api/led"]
+    assert by_path["/api/head"]  # emotions come with a head pose
 
 
-def test_gesture_moves_head_and_returns_to_center():
+def m_rest():
+    from pd_hri.robot.misty import REST_PITCH
+
+    return REST_PITCH
+
+
+def test_gesture_moves_head_and_returns_to_rest():
     misty, calls = misty_with_log()
 
     async def run():
@@ -48,7 +56,7 @@ def test_gesture_moves_head_and_returns_to_center():
 
     asyncio.run(run())
     heads = [c[2] for c in calls if c[1] == "/api/head"]
-    assert len(heads) == 4 and heads[-1]["Pitch"] == 0
+    assert len(heads) == 4 and heads[-1]["Pitch"] == m_rest()
     assert all(h["Units"] == "degrees" for h in heads)
 
 
@@ -82,5 +90,32 @@ def test_robot_name_follows_backend():
 
     cfg = Config(robot="misty", misty_ip="1.2.3.4")
     assert cfg.robot_name == "Misty" and Config().robot_name == "Buddy"
-    assert "I'm Misty" in Dialogue(Mode.HONEST, name=cfg.robot_name).intro().text
-    assert Brain(Mode.LIAR, "m", name="Misty").system.startswith("You are Misty")
+    assert "I'm Misty" in Dialogue(Mode.FRIENDLY, name=cfg.robot_name).intro().text
+    assert Brain(Mode.FRIENDLY, "m", name="Misty").system.startswith("You are Misty")
+
+
+def test_red_tint_uses_red_eye_images_and_red_led():
+    misty, calls = misty_with_log()
+    misty.red_ready = True
+
+    async def run():
+        await misty.handle({"cmd": "face", "mood": "happy", "tint": "red"})
+
+    asyncio.run(run())
+    display = next(b for _, p, b in calls if p == "/api/images/display")
+    assert display["FileName"] == "pdhri_red_" + EYES["happy"]
+    assert {"red": 255, "green": 0, "blue": 0} in [b for _, p, b in calls if p == "/api/led"]
+
+
+def test_redden_turns_colour_red():
+    import io
+
+    from PIL import Image
+
+    from pd_hri.robot.misty import redden
+
+    purple = Image.new("RGB", (4, 4), (160, 32, 240))
+    buf = io.BytesIO()
+    purple.save(buf, "JPEG")
+    r, g, b = Image.open(io.BytesIO(redden(buf.getvalue()))).getpixel((1, 1))
+    assert r > 150 and g < 80 and b < 80

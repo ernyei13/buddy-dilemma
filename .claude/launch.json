@@ -12,6 +12,12 @@
       "runtimeExecutable": "uv",
       "runtimeArgs": ["run", "pd-hri", "--fast"],
       "port": 8000
+    },
+    {
+      "name": "pd-hri-misty",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "pd-hri", "--robot", "misty", "--misty-ip", "192.168.1.237"],
+      "port": 8000
     }
   ]
 }

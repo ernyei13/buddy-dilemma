@@ -13,11 +13,18 @@
     <label>Participant ID <input id="participant" placeholder="P01" autocomplete="off"></label>
     <label>Mode
       <select id="mode">
-        <option value="honest">Honest (keeps its word)</option>
-        <option value="liar">Liar (promises, then defects)</option>
-        <option value="neutral">Neutral (control, no adaptation)</option>
+        <option value="friendly">Friendly (expressive, reads your face)</option>
+        <option value="neutral">Neutral (machine-like, professional)</option>
       </select>
     </label>
+    <fieldset class="settings">
+      <legend>Game settings</legend>
+      <label>Rounds <input id="set-rounds" type="number" min="1" max="30"></label>
+      <label>Round 1 chat (s) <input id="set-first" type="number" min="5" max="600"></label>
+      <label>Later chats (s) <input id="set-chat" type="number" min="5" max="600"></label>
+      <label>Vote (s) <input id="set-vote" type="number" min="3" max="120"></label>
+      <label class="wide">Lie rounds <input id="set-lies" placeholder="2,5,7"></label>
+    </fieldset>
     <ul id="checks" class="checks">
       <li id="chk-robot">Robot: …</li>
       <li id="chk-camera">Camera: starting…</li>
@@ -79,6 +86,7 @@
   <aside id="self" class="self">
     <div class="cam-wrap">
       <video id="cam" autoplay playsinline muted></video>
+      <img id="robotcam" class="hidden" alt="Robot camera">
       <span id="expr" class="badge">–</span>
     </div>
     <div class="mic">

@@ -1,4 +1,8 @@
-"""All tunable study parameters in one place."""
+"""All tunable study parameters in one place.
+
+The round settings (rounds, chat lengths, vote time, lie rounds) can also be changed on the
+start screen before each session.
+"""
 
 from __future__ import annotations
 
@@ -8,32 +12,42 @@ from pathlib import Path
 
 @dataclass
 class Config:
-    # Robot backend: "mock" (avatar + TTS in the browser) or "buddy" (remote adapter).
+    # Robot backend: "mock" (avatar + TTS in the browser), "misty" (HTTP API) or "buddy" (app).
     robot: str = "mock"
     misty_ip: str = ""  # Misty II address, e.g. 192.168.1.50 (only for robot="misty")
+    # Camera for facial expressions: "laptop" (webcam) or "robot" (Misty's camera).
+    camera: str = "laptop"
 
     @property
     def robot_name(self) -> str:
         return "Misty" if self.robot == "misty" else "Buddy"
 
-    # Round structure
-    rounds: int = 5
-    chat_s: float = 60.0
+    # ---- Round structure (editable on the start screen) -------------------------------------
+    rounds: int = 8
+    first_chat_s: float = 60.0  # chat length in round 1
+    chat_s: float = 20.0  # chat length in every later round
     vote_s: float = 10.0
     result_s: float = 6.0
+
+    # Robot strategy: this opening pattern, then copycat (plays the human's previous vote).
+    opening: tuple[str, ...] = ("C", "D", "C", "C")
+    # Rounds in which the robot lies about its vote (says the opposite of what it does).
+    lie_rounds: tuple[int, ...] = (2, 5, 7)
+    # Red eyes as a visible cue: while the robot is lying, and when it reveals a defection.
+    red_eyes_when_lying: bool = True
+    red_eyes_when_defecting: bool = True
+
     # Scripted fallback only (no LLM): seconds into the chat at which the robot speaks.
-    chat_beats: tuple[float, ...] = (0.0, 15.0, 30.0, 45.0)
+    chat_beats: tuple[float, ...] = (0.0, 10.0, 20.0, 35.0, 50.0)
 
     # Conversation (all local): Ollama LLM + faster-whisper speech recognition.
     use_llm: bool = True
     llm_model: str = "qwen2.5:3b"  # small + fast; better: qwen2.5:7b
     ollama_url: str = "http://localhost:11434"
     stt_model: str = "base.en"  # faster-whisper size: tiny.en, base.en, small.en, ...
-    silence_nudge_s: float = 7.0  # robot speaks up after this much silence
+    silence_nudge_s: float = 6.0  # robot speaks up after this much silence
     min_turn_s: float = 3.0  # no new robot turn this close to the end of the chat
-
-    # Liar mode: rounds (1-based) in which the robot defects despite promising to cooperate.
-    liar_defect_rounds: tuple[int, ...] = (2, 4)
+    hand_gesture_chance: float = 0.4  # friendly mode: chance of a hand gesture on a plain line
 
     # Payoff: (human_points, robot_points) indexed by (human_vote, robot_vote).
     payoff: dict[tuple[str, str], tuple[int, int]] = field(
@@ -54,3 +68,6 @@ class Config:
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
+
+    def chat_seconds(self, round_no: int) -> float:
+        return self.first_chat_s if round_no == 1 else self.chat_s
