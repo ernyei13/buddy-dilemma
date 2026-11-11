@@ -163,7 +163,9 @@ main {
   position: fixed;
   left: 16px;
   bottom: 16px;
-  width: 260px;
+  width: 220px;
+  max-width: 40vw;
+  overflow: hidden;
   background: var(--card);
   border: 1px solid var(--line);
   padding: 8px;
@@ -173,7 +175,16 @@ main {
   gap: 8px;
   z-index: 5;
 }
-.cam-wrap { position: relative; }
+.cam-wrap { position: relative; overflow: hidden; border-radius: 8px; background: #000; }
+.cam-wrap video,
+.cam-wrap img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover; /* crop the portrait robot frame to the middle (the face) */
+}
 #robotcam {
   width: 100%;
   aspect-ratio: 4 / 3;
