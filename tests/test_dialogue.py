@@ -31,8 +31,15 @@ def test_every_situation_has_a_valid_line(mode):
 
 def test_opening_follows_the_claim():
     friendly = Dialogue(Mode.FRIENDLY, random.Random(0))
-    assert "defect" in friendly.opening("betrayed", D).text.lower()
-    assert "cooperat" in friendly.opening("mutual", C).text.lower()
+    for _ in range(5):
+        assert "defect" in friendly.opening("betrayed", D).text.lower()
+        assert "defect" not in friendly.opening("mutual", C).text.lower()
+
+
+def test_lines_are_not_reused_until_all_alternatives_are_used():
+    dlg = Dialogue(Mode.FRIENDLY, random.Random(3))
+    texts = [dlg.vote().text for _ in range(5)]  # 5 vote lines in friendly mode
+    assert len(set(texts)) == 5
 
 
 def test_neutral_mode_is_flat_and_ignores_expression():

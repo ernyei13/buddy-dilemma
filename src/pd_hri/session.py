@@ -141,7 +141,7 @@ class Session:
         if self.mode.adaptive:
             expression = self.tracker.current()
             parts.append(f"The person's facial expression right now: {expression}.")
-            parts.append(face_rule(self.mode, expression))
+            parts.append(face_rule(self.mode, expression))  # friendly: comment every turn
         return " ".join(parts)
 
     # ---- main loop -------------------------------------------------------

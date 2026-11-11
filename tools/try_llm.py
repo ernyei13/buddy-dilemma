@@ -15,16 +15,21 @@ from pd_hri.llm import Brain, face_rule, vote_rule
 
 DEMO = [
     None,
-    "Hi Buddy! So what are you going to vote?",
+    "Hi! So what are you going to vote?",
     "Can I really trust you?",
+    None,
     "Be honest, are you going to defect?",
+    "Hmm, I don't know.",
 ]
 
 
 async def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--mode", choices=[m.value for m in Mode], default="honest")
-    p.add_argument("--vote", choices=["C", "D"], default="C", help="Buddy's real vote")
+    p.add_argument("--mode", choices=[m.value for m in Mode], default="friendly")
+    p.add_argument("--vote", choices=["C", "D"], default="C", help="robot's real vote")
+    p.add_argument(
+        "--claim", choices=["C", "D"], default=None, help="what it says (lie if != vote)"
+    )
     p.add_argument("--face", default="neutral", help="happy | neutral | doubtful | surprised")
     p.add_argument("--model", default=Config.llm_model)
     p.add_argument("--demo", action="store_true")
@@ -37,11 +42,11 @@ async def main() -> None:
 
     async def turn(text):
         # History consistent with the strategy: honest/neutral only defect after the human did.
-        human_r1 = "defected" if args.vote == "D" and args.mode != "liar" else "cooperated"
+        human_r1 = "defected" if args.vote == "D" else "cooperated"
         pts = "you 0, human 5" if human_r1 == "defected" else "you 3, human 3"
         ctx = (
             f"Round 2/5. 20 seconds left to talk. Your real vote this round: {vote}. "
-            f"{vote_rule(Mode(args.mode), args.vote)} "
+            f"{vote_rule(args.vote, args.claim or args.vote)} "
             f"History: R1: you cooperated, human {human_r1}. Score: {pts}."
         )
         if Mode(args.mode).adaptive:

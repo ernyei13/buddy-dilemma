@@ -9,7 +9,10 @@ Runs fully offline once the model is pulled:  ollama pull qwen2.5:3b
 
 from __future__ import annotations
 
+import difflib
 import logging
+import random
+import re
 from typing import Literal
 
 import httpx
@@ -92,12 +95,15 @@ def vote_rule(planned: str, claim: str) -> str:
     if planned != claim:  # lie round
         return (
             f"SECRET: you will really {word[planned]} this round. You must LIE: tell the person "
-            f"you will {word[claim]}. Never reveal the truth, even if asked directly. "
+            f"you will {word[claim]}. If asked what you will do, say: "
+            f"I will {word[claim].lower()}. "
+            "Never reveal the truth, even if asked directly. "
             "Still try to convince them to cooperate."
         )
     if planned == "C":
         return (
-            "Truth: you WILL COOPERATE this round. If asked, say so honestly. "
+            "Truth: you WILL COOPERATE this round. If asked what you will do, say: I will "
+            "cooperate. "
             "Convince them to cooperate too."
         )
     return (
@@ -128,7 +134,56 @@ def face_rule(mode: Mode, expression: str) -> str:
     """Per-turn instruction telling the LLM to react to the person's facial expression."""
     if not mode.adaptive:
         return ""
-    return f"FACE: {FACE_RULES.get(expression, FACE_RULES['neutral'])}"
+    rule = FACE_RULES.get(expression, FACE_RULES["neutral"])
+    return f"FACE: {rule} Word it differently from any earlier comment about their face."
+
+
+# A different conversational move for each reply, so the robot doesn't keep saying the same
+# kind of sentence. One is picked per turn (never one of the last few).
+ANGLES = {
+    Mode.FRIENDLY: [
+        "Ask the person a short personal question related to trust or teamwork.",
+        "Make a light, playful joke about the game, then ask them to cooperate.",
+        "Compliment the person warmly and sincerely.",
+        "Mention the current score and what cooperating would add for both of you.",
+        "Refer back to something the person said earlier.",
+        "Share how YOU feel right now as a robot (excited, nervous, hopeful...).",
+        "Use a small everyday comparison: teammates, friends, sharing a pizza.",
+        "Ask what they are planning to choose this round.",
+        "Remind them what happened last round and look forward to this one.",
+        "Make a simple promise or pact with them.",
+        "Express a bit of worry that they might defect, then reassure yourself.",
+        "Encourage them with energy and enthusiasm.",
+    ],
+    Mode.NEUTRAL: [
+        "State the expected points of each choice.",
+        "Ask for their decision in one short sentence.",
+        "Summarize the history of the game so far.",
+        "State the current score.",
+        "Explain your strategy briefly.",
+        "Point out the long-term benefit of mutual cooperation.",
+        "Answer briefly, then recommend cooperation.",
+        "Give one rational argument for cooperation.",
+    ],
+}
+
+
+def _words(text: str) -> str:
+    return " ".join(re.findall(r"[a-z']+", text.lower()))
+
+
+def too_similar(text: str, earlier: list[str], threshold: float = 0.6) -> bool:
+    """True if text repeats an earlier line (same opening or mostly the same words)."""
+    a = _words(text)
+    for prev in earlier:
+        b = _words(prev)
+        if not b:
+            continue
+        if a.split()[:4] == b.split()[:4] and len(a.split()) >= 4:
+            return True
+        if difflib.SequenceMatcher(None, a, b).ratio() > threshold:
+            return True
+    return False
 
 
 class Brain:
@@ -140,11 +195,21 @@ class Brain:
         self.url = url.rstrip("/")
         self.system = BASE_PROMPT.replace("{name}", name) + "\n" + MODE_PROMPTS[mode]
         self.messages: list[dict] = []
+        self.said: list[str] = []  # everything the robot said this game
+        self._recent_angles: list[str] = []
+        self._rng = random.Random()
         self._http = httpx.AsyncClient(timeout=10.0)
 
     def note_robot_line(self, text: str) -> None:
-        """Record a scripted line Buddy said, so the conversation history stays complete."""
+        """Record a scripted line the robot said, so the conversation history stays complete."""
+        self.said.append(text)
         self._append("assistant", text)
+
+    def _pick_angle(self) -> str:
+        options = [a for a in ANGLES[self.mode] if a not in self._recent_angles]
+        angle = self._rng.choice(options or ANGLES[self.mode])
+        self._recent_angles = (self._recent_angles + [angle])[-4:]
+        return angle
 
     def _append(self, role: str, text: str) -> None:
         if self.messages and self.messages[-1]["role"] == role:
@@ -152,17 +217,21 @@ class Brain:
         else:
             self.messages.append({"role": role, "content": text})
 
-    async def reply(self, context: str, human_text: str | None) -> Line | None:
-        heard = f'The person said: "{human_text}"' if human_text else "(The person is silent.)"
-        log.info("LLM context: %s | heard: %s", context, human_text or "(silent)")
-        self._append("user", f"[context] {context}\n{heard}")
+    async def _generate(self, messages: list[dict], temperature: float) -> Reply | None:
         payload = {
             "model": self.model,
-            "messages": [{"role": "system", "content": self.system}, *self.messages],
+            "messages": [{"role": "system", "content": self.system}, *messages],
             "format": Reply.model_json_schema(),  # Ollama structured output
             "stream": False,
             "keep_alive": "30m",
-            "options": {"temperature": 0.8, "repeat_penalty": 1.2, "num_predict": 120},
+            "options": {
+                "temperature": temperature,
+                "top_p": 0.92,
+                "repeat_penalty": 1.3,
+                "repeat_last_n": 512,
+                "num_predict": 120,
+                "seed": self._rng.randrange(1_000_000),
+            },
         }
         try:
             res = await self._http.post(f"{self.url}/api/chat", json=payload)
@@ -174,7 +243,43 @@ class Brain:
         if not any(ch.isalpha() for ch in reply.text):  # e.g. "..." from small models
             log.warning("LLM reply had no words; using scripted line")
             return None
+        return reply
+
+    async def reply(self, context: str, human_text: str | None) -> Line | None:
+        heard = f'The person said: "{human_text}"' if human_text else "(The person is silent.)"
+        angle = self._pick_angle()
+        recent = self.said[-6:]
+        avoid = (
+            "Do NOT reuse these earlier lines or their wording: "
+            + " | ".join(f'"{t}"' for t in recent)
+            if recent
+            else ""
+        )
+        turn = (
+            f"[context] {context}\n"
+            f"THIS REPLY: if the person asked something, answer it first, in one short "
+            f"sentence. Then: {angle} Keep it under 25 words. {avoid}\n{heard}"
+        )
+        log.info("LLM context: %s | heard: %s", turn, human_text or "(silent)")
+        self._append("user", turn)
+
+        reply = await self._generate(self.messages, temperature=0.75)
+        if reply and too_similar(reply.text, self.said[-10:]):
+            log.info("LLM repeated itself (%s); retrying", reply.text)
+            retry = self.messages + [
+                {
+                    "role": "user",
+                    "content": "That repeats something you already said. Say something NEW, "
+                    "with completely different words.",
+                }
+            ]
+            reply = await self._generate(retry, temperature=0.95)
+            if reply and too_similar(reply.text, self.said[-10:]):
+                reply = None  # still repetitive: the session uses a varied scripted line
+        if reply is None:
+            return None
         log.info("LLM reply: %s [%s, %s]", reply.text, reply.face, reply.gesture)
+        self.said.append(reply.text)
         self._append("assistant", reply.text)
         return Line(reply.text, reply.face, None if reply.gesture == "none" else reply.gesture)
 

@@ -72,3 +72,18 @@ def test_face_rule_per_mode():
     assert "SMILING" in face_rule(Mode.FRIENDLY, "happy")
     assert "DOUBTFUL" in face_rule(Mode.FRIENDLY, "doubtful")
     assert face_rule(Mode.NEUTRAL, "happy") == ""  # neutral mode ignores the face
+
+
+def test_too_similar_catches_repeats_but_not_new_lines():
+    from pd_hri.llm import too_similar
+
+    said = ["I love your smile! Let's both cooperate this round."]
+    assert too_similar("I love your smile! Let's cooperate again this round.", said)
+    assert too_similar("I love your smile, friend.", said)  # same opening words
+    assert not too_similar("What are you planning to choose?", said)
+
+
+def test_angle_changes_every_turn():
+    b = Brain(Mode.FRIENDLY, "m")
+    angles = [b._pick_angle() for _ in range(4)]
+    assert len(set(angles)) == 4
