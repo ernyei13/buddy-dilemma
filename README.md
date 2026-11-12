@@ -60,7 +60,7 @@ uv run pd-hri --llm-model qwen2.5:7b --stt-model small.en
 ```
 
 Open http://localhost:8000 in **Chrome or Safari**, allow the camera and microphone, enter a
-participant ID, pick a mode and press **Start**. The start screen shows a check for each part:
+participant ID, pick a mode and press **Arm session**. Three consecutive camera detections on that screen start the greeting. The start screen shows a check for each part:
 robot, camera, mic, speech recognition and LLM.
 
 You can see yourself in the corner with the detected expression, the mic level, and the

@@ -59,6 +59,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     hub = Hub()
     state: dict = {
         "session": None,
+        "armed": None,
         "task": None,
         "tracker": ExpressionTracker(cfg.expression_window_s),
         "llm": "off" if not cfg.use_llm else "checking",
@@ -92,7 +93,11 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         async def check_llm():
             state["llm"] = await ollama_status(cfg.ollama_url, cfg.llm_model)
             if state["llm"] == "ready":
-                await Brain(Mode.HONEST, cfg.llm_model, cfg.ollama_url).warm_up()
+                brain = Brain(Mode.FRIENDLY, cfg.llm_model, cfg.ollama_url)
+                try:
+                    await brain.warm_up()
+                finally:
+                    await brain.aclose()
             await hub.to_screens(status())
 
         async def watch_misty():  # show on the start screen whether Misty answers
@@ -134,6 +139,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             "robots_connected": int(state["misty_ok"]) if misty else len(hub.robots),
             "misty_ip": cfg.misty_ip,
             "robot_name": cfg.robot_name,
+            "armed": state["armed"] is not None,
             "running": state["task"] is not None and not state["task"].done(),
             "modes": [m.value for m in Mode],
             "config": {
@@ -251,12 +257,11 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             while True:
                 msg = await ws.receive_json()
                 kind = msg.get("type")
-                if kind == "start":
-                    await start_session(
-                        msg.get("mode", "friendly"),
-                        str(msg.get("participant", "")),
-                        msg.get("settings") or {},
-                    )
+                if kind in ("arm", "start") and not status()["running"] and state["armed"] is None:
+                    state["armed"] = (ws, msg)
+                    face_samples = 0
+                    last_face = 0.0
+                    await hub.to_screens(status())
                 elif kind == "vote" and state["session"]:
                     if state["session"].submit_vote(msg.get("choice")):
                         await hub.to_screens({"type": "vote_ack", "choice": msg["choice"]})
@@ -266,6 +271,24 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                         label = classify(msg.get("scores") or {})
                     state["tracker"].add(label)
                     await ws.send_json({"type": "expression", "label": label})
+                    armed = state["armed"]
+                    if armed and armed[0] is ws:
+                        now = time.monotonic()
+                        if not msg.get("scores"):
+                            face_samples = 0
+                        else:
+                            if now - last_face > 1:
+                                face_samples = 0
+                            face_samples += 1
+                            last_face = now
+                        if face_samples >= 3:
+                            setup = armed[1]
+                            state["armed"] = None
+                            await start_session(
+                                setup.get("mode", "friendly"),
+                                str(setup.get("participant", "")),
+                                setup.get("settings"),
+                            )
                 elif kind == "audio":
                     spawn(handle_speech(audio=msg.get("pcm16", "")))
                 elif kind == "text":
@@ -276,6 +299,9 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             pass
         finally:
             hub.screens.discard(ws)
+            if state["armed"] and state["armed"][0] is ws:
+                state["armed"] = None
+                await hub.to_screens(status())
 
     @app.websocket("/ws/robot")
     async def ws_robot(ws: WebSocket):

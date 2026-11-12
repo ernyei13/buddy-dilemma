@@ -33,3 +33,27 @@ def test_robot_adapter_connection_updates_status(tmp_path):
             assert screen.receive_json()["robots_connected"] == 1
             robot.send_json({"type": "speech_done"})
             assert screen.receive_json() == {"type": "robot_speech_done"}
+
+
+def test_armed_screen_starts_once_on_consecutive_camera_samples(tmp_path):
+    client = TestClient(create_app(Config(data_dir=tmp_path, use_llm=False)))
+    with client.websocket_connect("/ws/screen") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "arm", "mode": "neutral"})
+        assert ws.receive_json()["armed"]
+        sample = {"type": "expression", "scores": {"jawOpen": 0.0}}
+        for msg in [
+            sample,
+            sample,
+            {"type": "expression", "label": "no_face"},
+            {"type": "expression", "label": "happy"},
+            sample,
+            sample,
+        ]:
+            ws.send_json(msg)
+            assert ws.receive_json()["type"] == "expression"
+        ws.send_json(sample)
+        assert ws.receive_json()["type"] == "expression"
+        status = ws.receive_json()
+        assert status["running"] and not status["armed"]
+        ws.send_json({"type": "abort"})

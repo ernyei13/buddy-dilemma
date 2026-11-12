@@ -67,7 +67,8 @@ function onStatus(s) {
     : `Robot: mock avatar on this screen · ${s.config.rounds} rounds, ${s.config.chat_s}s chat`;
   $("chk-llm").textContent = (LLM_TEXT[s.llm] ?? (() => `LLM: ${s.llm}`))(s.llm_model);
   $("chk-stt").textContent = STT_TEXT[s.stt] ?? s.stt;
-  $("start-btn").disabled = s.running;
+  $("start-btn").disabled = s.running || s.armed;
+  $("start-btn").textContent = s.armed ? "Armed · waiting for a face" : "Arm session";
   $("avatar").classList.toggle("hidden", s.robot !== "mock");
   if (!settingsFilled) fillSettings(s.config);
   if (!mediaStarted) { mediaStarted = true; startMedia(); }
@@ -94,7 +95,7 @@ function fillSettings(c) {
 
 $("start-btn").onclick = () => {
   send({
-    type: "start",
+    type: "arm",
     mode: $("mode").value,
     participant: $("participant").value.trim(),
     settings: {

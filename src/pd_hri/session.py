@@ -197,17 +197,50 @@ class Session:
                     dialogue_log.append(f"Human: {heard}")
                 elif end - self.clock() <= cfg.min_turn_s:
                     break
-                if self.mode is Mode.FRIENDLY:
-                    await self.robot.face("thinking", self._tint)
-                line = await self.brain.reply(
-                    self._context(round_no, planned, claim, end - self.clock()), heard
-                )
-                if line is None:
-                    line = self.dialogue.persuade(self.tracker.current(), claim)
-                    self.brain.note_robot_line(line.text)
-                if self.clock() >= end:
+                fallback = Line("Please consider cooperating.")
+                reserve = speech_seconds(fallback.text) + 0.2
+                cue = Line("One moment.")
+                cue_time = speech_seconds(cue.text) if self.mode is Mode.NEUTRAL else 0.0
+                if end - self.clock() < reserve + cue_time:
                     break
-                last_activity = await self._perform(line, dialogue_log)
+                cue_end = self.clock()
+                line = None
+                try:
+                    if self.mode is Mode.FRIENDLY:
+                        await asyncio.wait_for(
+                            self.robot.face("thinking", self._tint),
+                            timeout=end - self.clock() - reserve,
+                        )
+                    else:
+                        cue_end = await asyncio.wait_for(
+                            self._perform(cue, dialogue_log), timeout=end - self.clock() - reserve
+                        )
+                    line = await asyncio.wait_for(
+                        self.brain.reply(
+                            self._context(round_no, planned, claim, end - self.clock()), heard
+                        ),
+                        timeout=min(5.0, end - self.clock() - reserve),
+                    )
+                except asyncio.TimeoutError:
+                    pass
+                if self.mode is Mode.NEUTRAL:
+                    await self._wait_until(min(cue_end, end))
+                scripted = line is None
+                if scripted:
+                    line = self.dialogue.persuade(self.tracker.current(), claim)
+                if speech_seconds(line.text) > end - self.clock():
+                    scripted = True
+                    line = fallback
+                    if speech_seconds(line.text) > end - self.clock():
+                        break
+                if scripted:
+                    self.brain.note_robot_line(line.text)
+                try:
+                    last_activity = await asyncio.wait_for(
+                        self._perform(line, dialogue_log), timeout=end - self.clock()
+                    )
+                except asyncio.TimeoutError:
+                    break
 
         await self._wait_until(end)
         self.accepting_speech = False

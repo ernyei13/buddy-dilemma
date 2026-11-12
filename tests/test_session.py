@@ -129,7 +129,8 @@ class FakeBrain:
         return Line(f"reply to {human_text}", "happy", "nod")
 
 
-def test_interactive_chat_replies_to_speech(tmp_path):
+def test_interactive_chat_replies_to_speech(tmp_path, monkeypatch):
+    monkeypatch.setattr("pd_hri.session.speech_seconds", lambda _: 0.01)
     from pd_hri.session import Session
 
     cfg = Config(
@@ -183,3 +184,41 @@ def test_votes_rejected_outside_vote_phase(tmp_path):
         return ok
 
     assert asyncio.run(main()) is False
+
+
+def test_stalled_reply_is_cancelled_before_vote(tmp_path, monkeypatch):
+    from pd_hri.session import Session
+
+    monkeypatch.setattr("pd_hri.session.speech_seconds", lambda _: 0.025)
+    for mode in (Mode.NEUTRAL, Mode.FRIENDLY):
+
+        class StalledBrain(FakeBrain):
+            cancelled = False
+
+            async def reply(self, context, human_text):
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    self.cancelled = True
+
+        async def main(mode=mode):
+            cfg = fast_config(tmp_path, rounds=1)
+            cfg.first_chat_s = 0.45
+            cfg.silence_nudge_s = 0
+            cfg.min_turn_s = 0.05
+            brain, robot = StalledBrain(), RecordingRobot()
+            phases = {}
+
+            async def broadcast(msg):
+                phases[msg["phase"]] = asyncio.get_running_loop().time()
+
+            s = Session(cfg, mode, "P", robot, broadcast, ExpressionTracker(), brain)
+            await asyncio.wait_for(s.run(), timeout=2)
+            assert brain.cancelled and brain.noted
+            assert phases["vote"] - phases["chat"] < 0.8
+            if mode is Mode.NEUTRAL:
+                assert ("say", "One moment.") in robot.calls
+            else:
+                assert ("face", "thinking", None) in robot.calls
+
+        asyncio.run(main())
