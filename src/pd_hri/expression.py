@@ -35,7 +35,7 @@ def classify(scores: dict[str, float]) -> str:
     frown = _avg(scores, "mouthFrownLeft", "mouthFrownRight")
     press = _avg(scores, "mouthPressLeft", "mouthPressRight")
 
-    if smile > 0.45:
+    if smile > 0.3:  # light smiles count too
         return HAPPY
     if jaw > 0.35 and (eye_wide > 0.3 or brow_up > 0.4):
         return SURPRISED
@@ -69,7 +69,10 @@ class ExpressionTracker:
         faces = [lbl for _, lbl in self._samples if lbl in LABELS]
         if not faces:
             return NEUTRAL
-        return Counter(faces).most_common(1)[0][0]
+        counts = Counter(faces)
+        if counts[HAPPY] >= 0.3 * len(faces):  # smiles are short: a brief one still counts
+            return HAPPY
+        return counts.most_common(1)[0][0]
 
     def pop_phase_counts(self) -> dict[str, int]:
         """Label counts since the last call (for logging per phase)."""

@@ -25,8 +25,10 @@ models are downloaded once, it works offline.
   these, and the lie rounds, can be changed on the start screen before each session.
 - **Robot's votes:** C, D, C, C, then **copycat** (it plays what the person played the round before).
 - **Lies:** in **3 rounds per game** (default 2, 5, 7) the robot says it will do the opposite of
-  what it really does. Its **eyes turn red while it is lying**, and also **whenever it defects**
-  at the reveal. On Misty these are red versions of its own eye images, plus a red chest LED.
+  what it really does.
+- **Red eyes (friendly mode only):** when the robot cooperated but the person defected, its eyes
+  turn red at the reveal and it shows sadness (sad face, head down). On Misty these are red
+  versions of its own eye images, plus a red chest LED.
 - The robot **always tries to convince** the person to cooperate.
 
 ## Modes (experimental conditions)
@@ -60,7 +62,7 @@ uv run pd-hri --llm-model qwen2.5:7b --stt-model small.en
 ```
 
 Open http://localhost:8000 in **Chrome or Safari**, allow the camera and microphone, enter a
-participant ID, pick a mode and press **Arm session**. Three consecutive camera detections on that screen start the greeting. The start screen shows a check for each part:
+participant ID, pick a mode and press **Arm session**. The greeting starts the moment the camera sees a face. The start screen shows a check for each part:
 robot, camera, mic, speech recognition and LLM.
 
 You can see yourself in the corner with the detected expression, the mic level, and the

@@ -114,6 +114,8 @@ main {
 .msg { max-width: 88%; padding: 8px 12px; border-radius: 14px; }
 .msg.robot { background: #24304a; align-self: flex-start; border-bottom-left-radius: 4px; }
 .msg.human { background: #1f5f9e; align-self: flex-end; border-bottom-right-radius: 4px; }
+.msg.robot.scripted { background: #4a3a1c; border-left: 3px solid #e0a33a; }
+.msg.robot.scripted small { color: #f0c987; }
 .msg.interim { opacity: .55; font-style: italic; }
 .msg small { display: block; color: var(--muted); font-size: 12px; }
 .msg.human small { color: #cfe2ff; }

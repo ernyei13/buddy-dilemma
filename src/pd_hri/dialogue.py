@@ -27,6 +27,7 @@ class Line:
     text: str
     face: str = "neutral"
     gesture: str | None = None
+    source: str = "script"  # "llm" for lines the language model wrote
 
 
 L = Line  # short alias for the tables
@@ -241,7 +242,7 @@ REACTIONS = {
         "betrayed": {
             HAPPY: [
                 L("You're smiling? That really hurt.", "sad", "shake"),
-                L("Hey, don't look so pleased! That stung.", "angry", "shake"),
+                L("You're smiling... but that made me really sad.", "sad", "look_down"),
             ],
             DOUBTFUL: [
                 L("You defected... it's okay. Let's start fresh.", "sad", "nod"),

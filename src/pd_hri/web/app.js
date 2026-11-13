@@ -164,10 +164,12 @@ function onVoteAck() {
   $("vote-ack").classList.remove("hidden");
 }
 
-function addChat(who, text) {
+function addChat(who, text, source) {
   const el = document.createElement("div");
-  el.className = `msg ${who}`;
-  el.innerHTML = `<small>${who === "robot" ? robotName() : "You"}</small>`;
+  const scripted = who === "robot" && source === "script";
+  el.className = `msg ${who}${scripted ? " scripted" : ""}`;
+  const name = who === "robot" ? robotName() : "You";
+  el.innerHTML = `<small>${name}${scripted ? " · prewritten" : who === "robot" ? " · LLM" : ""}</small>`;
   el.append(text);
   $("chat").append(el);
   $("chat").scrollTop = $("chat").scrollHeight;
@@ -199,7 +201,7 @@ if ("speechSynthesis" in window) {
 function onRobot(cmd) {
   const mock = status.robot === "mock";
   if (cmd.cmd === "say") {
-    addChat("robot", cmd.text);
+    addChat("robot", cmd.text, cmd.source ?? "script");
     robotSpeakingUntil = performance.now() + (cmd.est_s ?? 3) * 1000;
     if (mock && "speechSynthesis" in window) {
       speechSynthesis.cancel();

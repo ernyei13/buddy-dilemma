@@ -7,8 +7,19 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-FACES = ("neutral", "happy", "sad", "angry", "surprised", "thinking", "listening")
-GESTURES = ("nod", "shake", "tilt", "look_down", "celebrate", "open_arms", "wave", "talk_hands")
+# "static": professional mode's fixed machine eyes (no blinking, no emotion)
+FACES = ("neutral", "happy", "sad", "angry", "surprised", "thinking", "listening", "static")
+GESTURES = (
+    "nod",
+    "shake",
+    "tilt",
+    "look_down",
+    "celebrate",
+    "open_arms",
+    "wave",
+    "talk_hands",
+    "point",
+)
 
 
 class Robot(ABC):

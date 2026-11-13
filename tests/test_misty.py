@@ -3,7 +3,24 @@ import json
 
 import httpx
 
-from pd_hri.robot.misty import EYES, MistyRobot, hex_to_rgb
+from pd_hri.robot.misty import EYES, STATIC_EYES, MistyRobot, hex_to_rgb, static_eyes_image
+
+
+def test_professional_static_eyes_turn_blinking_off():
+    misty, calls = misty_with_log()
+    misty.static_ready = True
+
+    async def run():
+        await misty.handle({"cmd": "face", "mood": "static"})
+        await misty.handle({"cmd": "face", "mood": "static"})
+        await misty.handle({"cmd": "face", "mood": "happy"})
+
+    asyncio.run(run())
+    blinks = [body for _, path, body in calls if path == "/api/blink"]
+    displays = [body["FileName"] for _, path, body in calls if path == "/api/images/display"]
+    assert blinks == [{"Blink": False}, {"Blink": True}]  # off once, back on for friendly faces
+    assert displays == [STATIC_EYES, STATIC_EYES, EYES["happy"]]
+    assert static_eyes_image()[:2] == b"\xff\xd8"  # a JPEG
 
 
 def misty_with_log():

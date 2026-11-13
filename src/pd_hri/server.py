@@ -67,8 +67,12 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     transcriber = Transcriber(cfg.stt_model)
     state["misty_ok"] = False
 
-    async def misty_speech_done() -> None:
+    async def robot_speech_done() -> None:
+        if state["session"]:
+            state["session"].speech_done()  # lets the robot finish its sentence before the vote
         await hub.to_screens({"type": "robot_speech_done"})  # unmute the mic now
+
+    misty_speech_done = robot_speech_done
 
     misty = MistyRobot(cfg.misty_ip, misty_speech_done) if cfg.robot == "misty" else None
     background: set[asyncio.Task] = set()
@@ -190,6 +194,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         session = Session(
             scfg, Mode(mode), participant or "anon", make_robot(), hub.to_screens, tracker, brain
         )
+        # Misty and Buddy report when they finish speaking; the browser mock avatar does not.
+        session.speech_events = cfg.robot in ("misty", "buddy")
         state["session"] = session
 
         async def runner():
@@ -259,8 +265,6 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 kind = msg.get("type")
                 if kind in ("arm", "start") and not status()["running"] and state["armed"] is None:
                     state["armed"] = (ws, msg)
-                    face_samples = 0
-                    last_face = 0.0
                     await hub.to_screens(status())
                 elif kind == "vote" and state["session"]:
                     if state["session"].submit_vote(msg.get("choice")):
@@ -273,15 +277,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                     await ws.send_json({"type": "expression", "label": label})
                     armed = state["armed"]
                     if armed and armed[0] is ws:
-                        now = time.monotonic()
-                        if not msg.get("scores"):
-                            face_samples = 0
-                        else:
-                            if now - last_face > 1:
-                                face_samples = 0
-                            face_samples += 1
-                            last_face = now
-                        if face_samples >= 3:
+                        if msg.get("scores"):  # armed: start the moment a face is seen
                             setup = armed[1]
                             state["armed"] = None
                             await start_session(
@@ -313,7 +309,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             while True:
                 msg = await ws.receive_json()  # {"type": "hello" | "log" | "speech_done"}
                 if msg.get("type") == "speech_done":
-                    await hub.to_screens({"type": "robot_speech_done"})  # unmute the mic now
+                    await robot_speech_done()
                 else:
                     log.info("robot says: %s", msg)
         except WebSocketDisconnect:

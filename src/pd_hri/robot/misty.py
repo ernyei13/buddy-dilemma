@@ -43,6 +43,8 @@ EYES = {
     "listening": "e_DefaultContent.jpg",
 }
 RED_PREFIX = "pdhri_red_"
+# Professional mode: one plain, machine-like eye image we generate, shown with blinking off.
+STATIC_EYES = "pdhri_static.jpg"
 
 # Head angles in degrees: Pitch (+ = down), Roll (+ = tilt), Yaw (+ = turn).
 # REST_PITCH looks slightly up, at the face of a person sitting in front of Misty.
@@ -55,13 +57,14 @@ ARMS_UP = -29
 
 # A body pose for each emotion, applied when the face changes (makes emotions bigger).
 MOOD_POSE = {
+    "static": {"head": {"Pitch": REST_PITCH}, "arms": (ARMS_DOWN, ARMS_DOWN)},  # professional
     "neutral": {"head": {"Pitch": REST_PITCH}, "arms": (ARMS_DOWN, ARMS_DOWN)},
-    "listening": {"head": {"Pitch": REST_PITCH, "Roll": 10}},
-    "happy": {"head": {"Pitch": REST_PITCH - 12}, "arms": (45, 45)},
-    "sad": {"head": {"Pitch": 25}, "arms": (ARMS_DOWN, ARMS_DOWN)},
+    "listening": {"head": {"Pitch": REST_PITCH, "Roll": 12}, "arms": (70, 70)},
+    "happy": {"head": {"Pitch": REST_PITCH - 15, "Roll": 10}, "arms": (15, 15)},
+    "sad": {"head": {"Pitch": 28}, "arms": (ARMS_DOWN, ARMS_DOWN)},
     "angry": {"head": {"Pitch": 5}, "arms": (60, 60)},
-    "surprised": {"head": {"Pitch": REST_PITCH - 18}, "arms": (10, 10)},
-    "thinking": {"head": {"Pitch": REST_PITCH - 5, "Roll": 18, "Yaw": 15}},
+    "surprised": {"head": {"Pitch": REST_PITCH - 20}, "arms": (-15, -15)},
+    "thinking": {"head": {"Pitch": REST_PITCH - 5, "Roll": 20, "Yaw": 18}, "arms": (60, 80)},
 }
 
 # Gestures: each step is (kind, values, seconds to wait after).
@@ -93,9 +96,15 @@ GESTURES = {
         ("arms", (ARMS_DOWN, ARMS_DOWN), 0.2),
         ("head", {"Pitch": REST_PITCH}, 0.3),
     ],
-    "open_arms": [  # "trust me"
-        ("arms", (0, 0), 0.2),
-        ("head", {"Pitch": REST_PITCH - 5, "Roll": 12}, 1.4),
+    "open_arms": [  # "trust me": arms wide open, head tilted
+        ("arms", (-15, -15), 0.2),
+        ("head", {"Pitch": REST_PITCH - 8, "Roll": 15}, 1.4),
+        ("arms", (ARMS_DOWN, ARMS_DOWN), 0.2),
+        ("head", {"Pitch": REST_PITCH}, 0.3),
+    ],
+    "point": [  # reach one arm toward the person, lean the head in
+        ("arms", (ARMS_DOWN, 0), 0.2),
+        ("head", {"Pitch": REST_PITCH + 8, "Yaw": -10}, 1.2),
         ("arms", (ARMS_DOWN, ARMS_DOWN), 0.2),
         ("head", {"Pitch": REST_PITCH}, 0.3),
     ],
@@ -106,10 +115,15 @@ GESTURES = {
         ("arms", (ARMS_DOWN, 25), 0.4),
         ("arms", (ARMS_DOWN, ARMS_DOWN), 0.3),
     ],
-    "talk_hands": [  # small hand movement while explaining
-        ("arms", (40, 65), 0.6),
-        ("arms", (65, 35), 0.6),
-        ("arms", (ARMS_DOWN, ARMS_DOWN), 0.3),
+    "talk_hands": [  # hands and head move together while explaining
+        ("arms", (25, 60), 0.1),
+        ("head", {"Roll": 12, "Yaw": 8}, 0.5),
+        ("arms", (60, 20), 0.1),
+        ("head", {"Roll": -12, "Yaw": -8}, 0.5),
+        ("arms", (30, 45), 0.1),
+        ("head", {"Roll": 6}, 0.5),
+        ("arms", (ARMS_DOWN, ARMS_DOWN), 0.1),
+        ("head", {"Pitch": REST_PITCH}, 0.3),
     ],
 }
 
@@ -124,6 +138,24 @@ def hex_to_rgb(color: str) -> tuple[int, int, int] | None:
         return int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
     except ValueError:
         return None
+
+
+def static_eyes_image(width: int = 480, height: int = 272) -> bytes:
+    """Plain machine-like eyes: two flat light-grey bars on black, no iris, no shine."""
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", (width, height), (0, 0, 0))
+    d = ImageDraw.Draw(img)
+    w, h = width * 0.22, height * 0.12
+    for cx in (width * 0.3, width * 0.7):
+        d.rounded_rectangle(
+            (cx - w / 2, height * 0.45 - h / 2, cx + w / 2, height * 0.45 + h / 2),
+            radius=int(h / 3),
+            fill=(200, 205, 210),
+        )
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=92)
+    return buf.getvalue()
 
 
 def redden(jpeg: bytes) -> bytes:
@@ -151,6 +183,8 @@ class MistyRobot:
         self.on_speech_done = on_speech_done
         self.http = http or httpx.AsyncClient(timeout=5.0)
         self.red_ready = False
+        self.static_ready = False
+        self._blinking: bool | None = None
         self._gesture: asyncio.Task | None = None
         self._events: asyncio.Task | None = None
         self._mood: str | None = None
@@ -192,6 +226,23 @@ class MistyRobot:
             log.info("Misty red eye images ready")
         except Exception as e:
             log.warning("could not create red eye images (%s); using LED only", e)
+        try:
+            up = await self.http.post(
+                f"{self.base}/api/images",
+                json={
+                    "FileName": STATIC_EYES,
+                    "Data": base64.b64encode(static_eyes_image()).decode(),
+                    "Width": 480,
+                    "Height": 272,
+                    "ImmediatelyApply": False,
+                    "OverwriteExisting": True,
+                },
+                timeout=20,
+            )
+            up.raise_for_status()
+            self.static_ready = True
+        except Exception as e:
+            log.warning("could not create static eye image (%s); using the default eyes", e)
         return self.red_ready
 
     def start_events(self) -> None:
@@ -285,9 +336,13 @@ class MistyRobot:
             )
 
     async def face(self, mood: str, tint: str | None = None) -> None:
-        image = EYES.get(mood, EYES["neutral"])
-        if tint == "red" and self.red_ready:
-            image = RED_PREFIX + image
+        if mood == "static":  # professional mode: fixed machine eyes, no blinking
+            image = STATIC_EYES if self.static_ready else EYES["neutral"]
+        else:
+            image = EYES.get(mood, EYES["neutral"])
+            if tint == "red" and self.red_ready:
+                image = RED_PREFIX + image
+        await self._set_blinking(mood != "static")
         await self._post("/api/images/display", {"FileName": image, "Alpha": 1})
         await self._set_led("#FF0000" if tint == "red" else self._led)
         if mood != self._mood:  # body pose only when the emotion changes
@@ -297,6 +352,11 @@ class MistyRobot:
                 await self._head(pose.get("head", {}))
                 if "arms" in pose:
                     await self._arms(*pose["arms"])
+
+    async def _set_blinking(self, on: bool) -> None:
+        if on != self._blinking:
+            self._blinking = on
+            await self._post("/api/blink", {"Blink": on})
 
     async def led(self, color: str) -> None:
         self._led = color

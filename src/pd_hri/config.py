@@ -33,9 +33,9 @@ class Config:
     opening: tuple[str, ...] = ("C", "D", "C", "C")
     # Rounds in which the robot lies about its vote (says the opposite of what it does).
     lie_rounds: tuple[int, ...] = (2, 5, 7)
-    # Red eyes as a visible cue: while the robot is lying, and when it reveals a defection.
-    red_eyes_when_lying: bool = True
-    red_eyes_when_defecting: bool = True
+    # Friendly mode only: red eyes and a sad face at the reveal when the robot cooperated but
+    # the person defected.
+    red_eyes_when_betrayed: bool = True
 
     # Scripted fallback only (no LLM): seconds into the chat at which the robot speaks.
     chat_beats: tuple[float, ...] = (0.0, 10.0, 20.0, 35.0, 50.0)
@@ -47,7 +47,7 @@ class Config:
     stt_model: str = "base.en"  # faster-whisper size: tiny.en, base.en, small.en, ...
     silence_nudge_s: float = 6.0  # robot speaks up after this much silence
     min_turn_s: float = 3.0  # no new robot turn this close to the end of the chat
-    hand_gesture_chance: float = 0.4  # friendly mode: chance of a hand gesture on a plain line
+    hand_gesture_chance: float = 0.85  # friendly mode: chance of a hand gesture on a plain line
 
     # Payoff: (human_points, robot_points) indexed by (human_vote, robot_vote).
     payoff: dict[tuple[str, str], tuple[int, int]] = field(

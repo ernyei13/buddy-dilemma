@@ -46,6 +46,13 @@ class CommandRobot(Robot):
     async def led(self, color: str) -> None:
         await self._cmd("led", color=color)
 
+    async def perform(self, line, tint: str | None = None) -> None:
+        """Like Robot.perform, but tells the screen whether the line was scripted or LLM."""
+        await self.face(line.face, tint)
+        if line.gesture:
+            await self.gesture(line.gesture)
+        await self._cmd("say", text=line.text, source=getattr(line, "source", "script"))
+
 
 class MockRobot(CommandRobot):
     """Avatar + TTS rendered by the browser screen."""

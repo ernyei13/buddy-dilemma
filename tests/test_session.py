@@ -80,13 +80,22 @@ def test_full_game_strategy_lies_and_log(tmp_path):
     assert states[-1]["phase"] == "end"
 
 
-def test_red_eyes_while_lying_and_when_defecting(tmp_path):
-    _, robot, _, _ = run_session(tmp_path, Mode.FRIENDLY, [C, C])
+def test_red_eyes_and_sadness_only_when_betrayed_in_friendly_mode(tmp_path):
+    # round 1: robot C, person D -> betrayed: red eyes + sad at the reveal
+    _, robot, _, _ = run_session(tmp_path, Mode.FRIENDLY, [D])
     faces = [c for c in robot.calls if c[0] == "face"]
-    # round 2 is a lie round and the robot defects: red eyes in that chat and at its reveal
-    assert any(t == "red" for _, _, t in faces)
-    # round 1 (truthful, cooperates) starts with normal eyes
-    assert faces[0][2] is None
+    assert ("face", "sad", "red") in faces
+    assert ("gesture", "look_down") in robot.calls
+    assert faces[0][2] is None  # normal eyes while talking
+
+
+def test_no_red_eyes_when_lying_or_defecting(tmp_path):
+    # round 2 is a lie round where the robot defects on a cooperating person: no red
+    _, robot, _, _ = run_session(tmp_path / "f", Mode.FRIENDLY, [C, C])
+    assert not [c for c in robot.calls if c[0] == "face" and c[2] == "red"]
+    # neutral mode never shows red, even when betrayed
+    _, robot, _, _ = run_session(tmp_path / "n", Mode.NEUTRAL, [D])
+    assert not [c for c in robot.calls if c[0] == "face" and c[2] == "red"]
 
 
 def test_first_round_chat_is_longer(tmp_path):
@@ -110,8 +119,9 @@ def test_first_round_chat_is_longer(tmp_path):
 
 def test_neutral_mode_has_no_emotions_or_gestures(tmp_path):
     _, robot, _, _ = run_session(tmp_path, Mode.NEUTRAL, [C, D])
-    assert all(c[1] == "neutral" for c in robot.calls if c[0] == "face")
+    assert all(c[1] == "static" for c in robot.calls if c[0] == "face")  # fixed machine eyes
     assert not [c for c in robot.calls if c[0] == "gesture"]
+    assert ("say", "One moment.") not in robot.calls
 
 
 class FakeBrain:
@@ -121,7 +131,7 @@ class FakeBrain:
     def note_robot_line(self, text):
         self.noted.append(text)
 
-    async def reply(self, context, human_text):
+    async def reply(self, context, human_text, face=None, **kw):
         from pd_hri.dialogue import Line
 
         self.contexts.append(context)
@@ -169,6 +179,62 @@ def test_interactive_chat_replies_to_speech(tmp_path, monkeypatch):
     assert s.add_speech("too late") is False  # speech is ignored outside the chat
 
 
+def test_later_rounds_open_with_a_pregenerated_llm_line(tmp_path, monkeypatch):
+    monkeypatch.setattr("pd_hri.session.speech_seconds", lambda _: 0.01)
+    from pd_hri.session import Session
+
+    cfg = fast_config(tmp_path, rounds=2, robot="misty")
+    brain = FakeBrain()
+
+    async def noop(_):
+        pass
+
+    async def main():
+        s = Session(cfg, Mode.FRIENDLY, "P", RecordingRobot(), noop, ExpressionTracker(), brain)
+        await s.run()
+        return s
+
+    s = asyncio.run(main())
+    rows = list(csv.DictReader(s.logger.path.open()))
+    assert "A NEW ROUND IS STARTING" in brain.contexts[0]
+    assert "Round 2/2" in brain.contexts[0]
+    assert rows[1]["dialogue"].startswith("Misty: reply to None")  # LLM line opens round 2
+
+
+def test_vote_waits_until_the_robot_finished_its_sentence(tmp_path, monkeypatch):
+    monkeypatch.setattr("pd_hri.session.speech_seconds", lambda _: 0.3)
+    from pd_hri.session import Session
+
+    cfg = fast_config(tmp_path, rounds=1)
+    events = []
+    holder = {}
+
+    async def broadcast(msg):
+        if msg.get("phase"):
+            events.append(msg["phase"])
+
+    class SlowRobot(RecordingRobot):
+        async def say(self, text):
+            await super().say(text)
+            events.append("say")
+            loop = asyncio.get_running_loop()
+            loop.call_later(0.25, lambda: (events.append("done"), holder["s"].speech_done()))
+
+    async def main():
+        s = Session(cfg, Mode.NEUTRAL, "P", SlowRobot(), broadcast, ExpressionTracker())
+        s.speech_events = True
+        holder["s"] = s
+        await s.run()
+
+    asyncio.run(main())
+    # the robot's last chat line finishes ("done") before the vote phase starts
+    assert events.index("vote") > max(
+        i for i, e in enumerate(events[: events.index("vote")]) if e == "done"
+    )
+    last_say = max(i for i, e in enumerate(events[: events.index("vote")]) if e == "say")
+    assert "done" in events[last_say : events.index("vote")]
+
+
 def test_votes_rejected_outside_vote_phase(tmp_path):
     from pd_hri.session import Session
 
@@ -195,7 +261,7 @@ def test_stalled_reply_is_cancelled_before_vote(tmp_path, monkeypatch):
         class StalledBrain(FakeBrain):
             cancelled = False
 
-            async def reply(self, context, human_text):
+            async def reply(self, context, human_text, face=None, **kw):
                 try:
                     await asyncio.Event().wait()
                 finally:
@@ -216,8 +282,9 @@ def test_stalled_reply_is_cancelled_before_vote(tmp_path, monkeypatch):
             await asyncio.wait_for(s.run(), timeout=2)
             assert brain.cancelled and brain.noted
             assert phases["vote"] - phases["chat"] < 0.8
-            if mode is Mode.NEUTRAL:
-                assert ("say", "One moment.") in robot.calls
+            if mode is Mode.NEUTRAL:  # stays silent and still while thinking
+                assert ("say", "One moment.") not in robot.calls
+                assert ("face", "thinking", None) not in robot.calls
             else:
                 assert ("face", "thinking", None) in robot.calls
 

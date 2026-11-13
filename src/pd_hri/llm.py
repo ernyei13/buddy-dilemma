@@ -28,7 +28,16 @@ class Reply(BaseModel):
     text: str = Field(min_length=2, max_length=300)
     face: Literal["neutral", "happy", "sad", "angry", "surprised", "thinking", "listening"]
     gesture: Literal[
-        "none", "nod", "shake", "tilt", "look_down", "celebrate", "open_arms", "wave", "talk_hands"
+        "none",
+        "nod",
+        "shake",
+        "tilt",
+        "look_down",
+        "celebrate",
+        "open_arms",
+        "wave",
+        "talk_hands",
+        "point",
     ]
 
 
@@ -114,7 +123,10 @@ def vote_rule(planned: str, claim: str) -> str:
 
 
 FACE_RULES = {
-    "happy": "The person is SMILING. Mention their smile or good mood out loud and build on it.",
+    "happy": (
+        "The person is SMILING. React to the smile out loud ('I see that smile!') and link it to "
+        "the game: does it mean they will cooperate, or are they up to something? Build on it."
+    ),
     "doubtful": (
         "The person looks DOUBTFUL or SUSPICIOUS (frowning). Say out loud that they look unsure, "
         "show you understand, then reassure them and win them over."
@@ -124,8 +136,8 @@ FACE_RULES = {
         "surprised face, then explain yourself."
     ),
     "neutral": (
-        "The person's face is neutral, hard to read. Say you can't tell what they think, and "
-        "ask how they feel about the game."
+        "Do NOT comment on their face or how they look this time. Instead reflect on what is "
+        "happening: what they just said, how the last round went, or the score."
     ),
 }
 
@@ -134,8 +146,12 @@ def face_rule(mode: Mode, expression: str) -> str:
     """Per-turn instruction telling the LLM to react to the person's facial expression."""
     if not mode.adaptive:
         return ""
-    rule = FACE_RULES.get(expression, FACE_RULES["neutral"])
-    return f"FACE: {rule} Word it differently from any earlier comment about their face."
+    if expression not in FACE_RULES or expression == "neutral":
+        return f"FACE: {FACE_RULES['neutral']} Never say they look neutral."
+    return (
+        f"FACE: {FACE_RULES[expression]} Speak TO the person ('you look...'), never about them "
+        "('they look'). Word it differently from any earlier comment about their face."
+    )
 
 
 # A different conversational move for each reply, so the robot doesn't keep saying the same
@@ -166,10 +182,49 @@ ANGLES = {
         "Give one rational argument for cooperation.",
     ],
 }
+# Angles that need something to have happened already: never used in round 1.
+HISTORY_ANGLES = {
+    "Mention the current score and what cooperating would add for both of you.",
+    "Refer back to something the person said earlier.",
+    "Remind them what happened last round and look forward to this one.",
+    "Summarize the history of the game so far.",
+    "State the current score.",
+}
 
 
 def _words(text: str) -> str:
     return " ".join(re.findall(r"[a-z']+", text.lower()))
+
+
+HISTORY_MESSAGES = 10  # earlier messages sent with each request (what was said, not context)
+
+
+def shorten(text: str, max_words: int = 30) -> str:
+    """One line, whole sentences, at most max_words words (cut mid-sentence only if needed)."""
+    text = " ".join(text.split())
+    out = ""
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        candidate = f"{out} {sentence}".strip()
+        if out and len(candidate.split()) > max_words:
+            break
+        out = candidate
+    words = out.split()
+    if len(words) > max_words:
+        out = " ".join(words[:max_words]).rstrip(",;:-") + "."
+    # Small models sometimes talk about the person instead of to them.
+    return re.sub(
+        r"\b([Tt])hey (look|seem)\b",
+        lambda m: ("You" if m.group(1) == "T" else "you") + " " + m.group(2),
+        out,
+    )
+
+
+FACE_WORDS = re.compile(
+    r"\b(face|faces|smile|smiling|smiles|smiled|grin|grinning|frown|frowning|expression|eyes|"
+    r"look|looks|looking|seem|seems|mood|surprised|surprise|doubtful|doubt|unsure|worried|"
+    r"hesitant|happy|happiness|cheerful|glad|pleased|smug|content|joy|joyful|beaming|sunny)\b",
+    re.IGNORECASE,
+)
 
 
 def too_similar(text: str, earlier: list[str], threshold: float = 0.6) -> bool:
@@ -205,9 +260,10 @@ class Brain:
         self.said.append(text)
         self._append("assistant", text)
 
-    def _pick_angle(self) -> str:
-        options = [a for a in ANGLES[self.mode] if a not in self._recent_angles]
-        angle = self._rng.choice(options or ANGLES[self.mode])
+    def _pick_angle(self, first_round: bool = False) -> str:
+        pool = [a for a in ANGLES[self.mode] if not (first_round and a in HISTORY_ANGLES)]
+        options = [a for a in pool if a not in self._recent_angles]
+        angle = self._rng.choice(options or pool)
         self._recent_angles = (self._recent_angles + [angle])[-4:]
         return angle
 
@@ -229,7 +285,7 @@ class Brain:
                 "top_p": 0.92,
                 "repeat_penalty": 1.3,
                 "repeat_last_n": 512,
-                "num_predict": 120,
+                "num_predict": 90,  # JSON + a short reply; shorter output = faster reply
                 "seed": self._rng.randrange(1_000_000),
             },
         }
@@ -243,11 +299,20 @@ class Brain:
         if not any(ch.isalpha() for ch in reply.text):  # e.g. "..." from small models
             log.warning("LLM reply had no words; using scripted line")
             return None
+        reply.text = shorten(reply.text)  # long, poem-like replies would not fit the time
         return reply
 
-    async def reply(self, context: str, human_text: str | None) -> Line | None:
+    async def reply(
+        self,
+        context: str,
+        human_text: str | None,
+        face: str | None = None,
+        first_round: bool = False,
+    ) -> Line | None:
+        """face: an expression the reply must comment on (friendly mode, not neutral faces).
+        first_round: nothing has happened yet, so no angles about history or score."""
         heard = f'The person said: "{human_text}"' if human_text else "(The person is silent.)"
-        angle = self._pick_angle()
+        angle = self._pick_angle(first_round)
         recent = self.said[-6:]
         avoid = (
             "Do NOT reuse these earlier lines or their wording: "
@@ -261,12 +326,15 @@ class Brain:
             f"sentence. Then: {angle} Keep it under 25 words. {avoid}\n{heard}"
         )
         log.info("LLM context: %s | heard: %s", turn, human_text or "(silent)")
-        self._append("user", turn)
+        # The history keeps only what was said (short); the full instructions go with this
+        # turn only. Otherwise the prompt grows every turn and replies get too slow by round 5.
+        send = self.messages[-HISTORY_MESSAGES:] + [{"role": "user", "content": turn}]
+        self._append("user", heard)
 
-        reply = await self._generate(self.messages, temperature=0.75)
+        reply = await self._generate(send, temperature=0.75)
         if reply and too_similar(reply.text, self.said[-10:]):
             log.info("LLM repeated itself (%s); retrying", reply.text)
-            retry = self.messages + [
+            retry = send + [
                 {
                     "role": "user",
                     "content": "That repeats something you already said. Say something NEW, "
@@ -276,12 +344,25 @@ class Brain:
             reply = await self._generate(retry, temperature=0.95)
             if reply and too_similar(reply.text, self.said[-10:]):
                 reply = None  # still repetitive: the session uses a varied scripted line
+        if reply and face and not FACE_WORDS.search(reply.text):
+            log.info("LLM ignored the face (%s); retrying", reply.text)
+            retry = send + [
+                {
+                    "role": "user",
+                    "content": f"Your reply must say how the person looks: they look {face}. "
+                    "Mention their face or expression in one short sentence, then continue.",
+                }
+            ]
+            reply = await self._generate(retry, temperature=0.9)
+            if reply and not FACE_WORDS.search(reply.text):
+                reply = None  # still ignores the face: the session uses a face-specific line
         if reply is None:
             return None
         log.info("LLM reply: %s [%s, %s]", reply.text, reply.face, reply.gesture)
         self.said.append(reply.text)
         self._append("assistant", reply.text)
-        return Line(reply.text, reply.face, None if reply.gesture == "none" else reply.gesture)
+        gesture = None if reply.gesture == "none" else reply.gesture
+        return Line(reply.text, reply.face, gesture, source="llm")
 
     async def warm_up(self) -> bool:
         """Load the model into memory so the first reply is fast. True if Ollama answered."""
